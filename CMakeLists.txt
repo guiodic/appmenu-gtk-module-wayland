@@ -51,4 +51,8 @@ add_library(appmenu-gtk-module-wayland  SHARED
     "${SRC_DIR}/consts.h"
 )
 
-target_link_libraries(appmenu-gtk-module-wayland PRIVATE appmenu-gtk3-parser)
+set(TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+add_executable(unity-gtk-menu-tester "${TEST_DIR}/demos/unity-gtk-menu-tester.c")
+target_include_directories(unity-gtk-menu-tester PUBLIC ${GTK3_INCLUDE_DIRS})
+target_link_libraries(unity-gtk-menu-tester ${GTK3_LIBRARIES})
