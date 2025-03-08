@@ -1,3 +1,23 @@
+PoC: GTK global menu on Plasma Wayland
+
+### dependencies
+
+- libdbusmenu-gtk3
+
+### build instruction
+
+```console
+$ mkdir build
+$ cmake -B build .
+$ cmake --build build
+```
+
+### run the tester
+
+```console
+$ GTK_MODULES=$PWD/build/libappmenu-gtk-module-wayland.so ./build/unity-gtk-menu-tester
+```
+
 ---
 Application Menu GTK+ Module
 ---
