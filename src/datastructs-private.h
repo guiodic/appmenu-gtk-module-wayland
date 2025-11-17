@@ -31,14 +31,12 @@
 struct _WindowData
 {
 	uint window_id;
-	ulong wayland_window_id;
 	GMenu *menu_model;
-	guint menu_model_export_id;
 	GSList *menus;
 	GMenuModel *old_model;
-	UnityGtkActionGroup *action_group;
-	guint action_group_export_id;
 	// TODO: save org_kde_kwin_appmenu here, and remove UnityGtk* stuff
+	struct org_kde_kwin_appmenu *kde_appmenu;
+	GtkWidget *menu;
 };
 
 struct _MenuShellData

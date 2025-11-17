@@ -52,17 +52,17 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 	{
 		GDBusConnection *session = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
 
-		if (window_data->action_group_export_id)
-			g_dbus_connection_unexport_action_group(session,
-			                                        window_data
-			                                            ->action_group_export_id);
+		// if (window_data->action_group_export_id)
+		// 	g_dbus_connection_unexport_action_group(session,
+		// 	                                        window_data
+		// 	                                            ->action_group_export_id);
 
-		if (window_data->menu_model_export_id)
-			g_dbus_connection_unexport_menu_model(session,
-			                                      window_data->menu_model_export_id);
+		// if (window_data->menu_model_export_id)
+		// 	g_dbus_connection_unexport_menu_model(session,
+		// 	                                      window_data->menu_model_export_id);
 
-		if (window_data->action_group != NULL)
-			g_object_unref(window_data->action_group);
+		// if (window_data->action_group != NULL)
+		// 	g_object_unref(window_data->action_group);
 
 		if (window_data->menu_model != NULL)
 			g_object_unref(window_data->menu_model);
@@ -80,10 +80,10 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 G_GNUC_INTERNAL WindowData *window_data_copy(WindowData *source)
 {
 	WindowData *ret             = window_data_new();
-	ret->action_group_export_id = source->action_group_export_id;
-	ret->menu_model_export_id   = source->menu_model_export_id;
-	if (source->action_group != NULL)
-		ret->action_group = g_object_ref(source->action_group);
+	// ret->action_group_export_id = source->action_group_export_id;
+	// ret->menu_model_export_id   = source->menu_model_export_id;
+	// if (source->action_group != NULL)
+	// 	ret->action_group = g_object_ref(source->action_group);
 
 	if (source->menu_model != NULL)
 		ret->menu_model = g_object_ref(source->menu_model);
@@ -151,11 +151,12 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 	WindowData *window_data = NULL;
 
 	g_return_val_if_fail(GTK_IS_WINDOW(window), NULL);
+	g_print("gtk_window_get_window_data: GTK_IS_WINDOW\n");
 
 #if (defined(GDK_WINDOWING_WAYLAND))
 	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
 	{
-		g_print("GDK_IS_WAYLAND_DISPLAY\n");
+		g_print("gtk_window_get_window_data: GDK_IS_WAYLAND_DISPLAY\n");
 		window_data = gtk_wayland_window_get_window_data(window);
 	}
 #endif
@@ -216,7 +217,7 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 
 G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
 {
-	g_print("gtk_window_connect_menu_shell\n");
+	g_print("============== gtk_window_connect_menu_shell\n");
 	MenuShellData *menu_shell_data;
 
 	g_return_if_fail(GTK_IS_WINDOW(window));
@@ -245,8 +246,8 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 			{
 				UnityGtkMenuShell *shell = unity_gtk_menu_shell_new(menu_shell);
 
-				unity_gtk_action_group_connect_shell(window_data->action_group,
-				                                     shell);
+				// unity_gtk_action_group_connect_shell(window_data->action_group,
+				//                                      shell);
 
 				g_menu_append_section(window_data->menu_model,
 				                      NULL,
@@ -254,13 +255,12 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 
 				window_data->menus = g_slist_append(window_data->menus, shell);
 
-				g_print("dbusmenu_gtk_parse_menu_structure\n");
 				DbusmenuMenuitem *item = dbusmenu_gtk_parse_menu_structure(GTK_WIDGET(menu_shell));
 				gchar *path = g_strdup_printf("/MenuBar/%d", window_data->window_id);
 				DbusmenuServer *srv = dbusmenu_server_new(path);
 				dbusmenu_server_set_root(srv, item);
 				GDBusConnection* connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-				char* unique_bus_name =  g_strdup_printf("%s", g_dbus_connection_get_unique_name(connection));
+				char* unique_bus_name = g_dbus_connection_get_unique_name(connection);
 				appmenu_set_address(gtk_widget_get_window(GTK_WIDGET(window)), unique_bus_name, path);
 			}
 		}

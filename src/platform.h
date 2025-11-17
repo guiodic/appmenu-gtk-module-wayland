@@ -25,6 +25,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#include "appmenu.h"
 #include <gdk/gdkx.h>
 #include <gtk/gtk.h>
 
@@ -44,6 +45,6 @@ G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window);
 G_GNUC_INTERNAL WindowData *gtk_wayland_window_get_window_data(GtkWindow *window);
 #endif
 
-void appmenu_set_address(GdkWindow *gdk_win, char *unique_bus_name, char *menubar_object_path);
+struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow *gdk_win, char *unique_bus_name, char *menubar_object_path);
 
 #endif // PLATFORM_H

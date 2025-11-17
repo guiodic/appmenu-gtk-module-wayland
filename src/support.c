@@ -75,6 +75,7 @@ G_GNUC_INTERNAL void enable_debug()
 
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
+	return true;
 	GtkSettings *settings;
 	GParamSpec *pspec;
 	gboolean shell_shows_menubar;

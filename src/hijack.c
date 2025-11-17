@@ -29,6 +29,8 @@
 #include "consts.h"
 #include "datastructs.h"
 #include "hijack.h"
+#include "glib-object.h"
+#include "glib.h"
 #include "platform.h"
 #include "support.h"
 
@@ -68,6 +70,7 @@ static void (*pre_hijacked_menu_bar_get_preferred_height_for_width)(GtkWidget *w
 
 static void hijacked_window_realize(GtkWidget *widget)
 {
+	g_print("hijacked_window_realize\n");
 	g_return_if_fail(GTK_IS_WINDOW(widget));
 
 	GdkScreen *screen      = gtk_widget_get_screen(widget);
@@ -99,28 +102,22 @@ static void hijacked_window_unrealize(GtkWidget *widget)
 	g_object_set_qdata(G_OBJECT(widget), window_data_quark(), NULL);
 }
 
-#if GTK_MAJOR_VERSION == 3
 static void hijacked_application_window_realize(GtkWidget *widget)
 {
+	g_print("hijacked_application_window_realize\n");
 	g_return_if_fail(GTK_IS_APPLICATION_WINDOW(widget));
-
-#ifdef GDK_WINDOWING_WAYLAND
-	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
-		gtk_window_get_window_data(GTK_WINDOW(widget));
-#endif
+	g_print("hijacked_application_window_realize: GTK_IS_APPLICATION_WINDOW\n");
 
 	if (pre_hijacked_application_window_realize != NULL)
 		pre_hijacked_application_window_realize(widget);
 
-#ifdef GDK_WINDOWING_X11
-	if (GDK_IS_X11_DISPLAY(gdk_display_get_default()))
+	if (GDK_IS_X11_DISPLAY(gdk_display_get_default()) || GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
 		gtk_window_get_window_data(GTK_WINDOW(widget));
-#endif
 }
-#endif
 
 static void hijacked_menu_bar_realize(GtkWidget *widget)
 {
+	g_print("hijacked_menu_bar_realize\n");
 	GtkWidget *window;
 
 	g_return_if_fail(GTK_IS_MENU_BAR(widget));
