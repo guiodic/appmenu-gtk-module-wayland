@@ -24,7 +24,7 @@ add_library(appmenu-gtk-module-wayland  SHARED
 )
 
 target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}")
-target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB)
+target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT)
 
 option(BUILD_TESTS "Build test applications" OFF)
 
