@@ -31,41 +31,25 @@ pc_kwargs = {
     'extra_cflags': ['-I${includedir}/appmenu-gtk-parser']
 }
 
-if build_gtk2
-    gtk2_parser_lib = shared_library(
-        'appmenu-gtk2-parser',
-        dependencies: gtk2,
-        c_args: '-Wno-deprecated-declarations',
-        kwargs: parser_kwargs
-    )
-    pkgconfig.generate(gtk2_parser_lib,
-        requires: gtk2,
-        kwargs: pc_kwargs
-    )
-    gtk2_parser_dep = declare_dependency(
-        include_directories: parser_inc,
-        link_with: gtk2_parser_lib,
-        dependencies: gtk2
-    )
-endif
 
-if build_gtk3
-    gtk3_parser_lib = shared_library(
-        'appmenu-gtk3-parser',
-        dependencies: gtk3,
-        kwargs: parser_kwargs
-    )
-    pkgconfig.generate(gtk3_parser_lib,
-        requires: gtk3,
-        kwargs: pc_kwargs
-    )
-    gtk3_parser_dep = declare_dependency(
-        include_directories: parser_inc,
-        link_with: gtk3_parser_lib,
-        dependencies: gtk3
-    )
-endif
+gtk3_parser_lib = shared_library(
+    'appmenu-gtk3-parser',
+    dependencies: gtk3,
+    kwargs: parser_kwargs
+)
 
-if build_gtk2 or build_gtk3
-    install_headers(lib_headers, subdir: 'appmenu-gtk-parser')
-endif
+pkgconfig.generate(gtk3_parser_lib,
+    requires: gtk3,
+    kwargs: pc_kwargs
+)
+
+gtk3_parser_dep = declare_dependency(
+    include_directories: parser_inc,
+    link_with: gtk3_parser_lib,
+    dependencies: gtk3
+)
+
+
+
+install_headers(lib_headers, subdir: 'appmenu-gtk-parser')
+
