@@ -46,42 +46,16 @@ static const char *const BLACKLIST[] = { "acroread",
 	                                 "appmenu-mate",
 	                                 NULL };
 
-static bool is_string_in_array(const char *string, GVariant *array)
+G_GNUC_INTERNAL
+bool is_blacklisted(const char *name)
 {
-	GVariantIter iter;
-	char *element;
+	guint i;
 
-	g_return_val_if_fail(array != NULL, false);
-	g_return_val_if_fail(g_variant_is_of_type(array, G_VARIANT_TYPE("as")), false);
-
-	g_variant_iter_init(&iter, array);
-	while (g_variant_iter_loop(&iter, "&s", &element))
+	for (i = 0; BLACKLIST[i] != NULL; i++)
 	{
-		if (g_strcmp0(element, string) == 0)
+		if (g_strcmp0(name, BLACKLIST[i]) == 0)
 			return true;
 	}
 
 	return false;
-}
-
-static bool is_listed(const char *name, const char *key)
-{
-	return false;
-}
-
-G_GNUC_INTERNAL
-bool is_blacklisted(const char *name)
-{
-	guint n;
-	guint i;
-
-	n = sizeof(BLACKLIST) / sizeof(const char *);
-
-	for (i = 0; i < n; i++)
-	{
-		if (g_strcmp0(name, BLACKLIST[i]) == 0)
-			return !is_listed(name, WHITELIST_KEY);
-	}
-
-	return is_listed(name, BLACKLIST_KEY);
 }

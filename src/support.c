@@ -75,12 +75,6 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 	return should_run;
 }
 
-// G_GNUC_INTERNAL void enable_debug()
-// {
-// 	unity_gtk_menu_shell_set_debug(is_true(g_getenv("UNITY_GTK_MENU_SHELL_DEBUG")));
-// 	unity_gtk_action_group_set_debug(is_true(g_getenv("UNITY_GTK_ACTION_GROUP_DEBUG")));
-// }
-
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
@@ -138,61 +132,6 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 }
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-static gboolean is_dbus_present(int index)
-{
-	GDBusConnection *connection;
-	GVariant *ret, *names;
-	GVariantIter *iter;
-	char *name;
-	gboolean is_present;
-	GError *error = NULL;
-
-	is_present = false;
-
-	connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
-	if (connection == NULL)
-	{
-		g_debug("Unable to connect to dbus: %s", error->message);
-		g_error_free(error);
-		return false;
-	}
-
-	ret = g_dbus_connection_call_sync(connection,
-	                                  "org.freedesktop.DBus",
-	                                  "/org/freedesktop/DBus",
-	                                  "org.freedesktop.DBus",
-	                                  "ListNames",
-	                                  NULL,
-	                                  G_VARIANT_TYPE("(as)"),
-	                                  G_DBUS_CALL_FLAGS_NONE,
-	                                  -1,
-	                                  NULL,
-	                                  &error);
-	if (ret == NULL)
-	{
-		g_debug("Unable to query dbus: %s", error->message);
-		g_error_free(error);
-		g_object_unref(connection);
-		return false;
-	}
-	names = g_variant_get_child_value(ret, 0);
-	g_variant_get(names, "as", &iter);
-	while (g_variant_iter_loop(iter, "s", &name))
-	{
-		if (g_str_equal(name, REGISTRAR_NAMES[index]))
-		{
-			is_present = true;
-			break;
-		}
-	}
-	g_variant_iter_free(iter);
-	g_variant_unref(names);
-	g_variant_unref(ret);
-	g_object_unref(connection);
-
-	return is_present;
-}
-
 G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 {
 	GtkSettings *settings = gtk_settings_get_default();
@@ -258,15 +197,64 @@ G_GNUC_INTERNAL void watch_registrar_dbus()
 	if (watcher_ids[0] == 0)
 	{
 		for (int i = 0; i < 4; i++)
+			registrar_present[i] = false;
+
+		GError *error               = NULL;
+		GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+		if (connection == NULL)
 		{
-			registrar_present[i] = is_dbus_present(i);
-			watcher_ids[i]       = g_bus_watch_name(G_BUS_TYPE_SESSION,
-                                              REGISTRAR_NAMES[i],
-                                              G_BUS_NAME_WATCHER_FLAGS_NONE,
-                                              on_name_appeared,
-                                              on_name_vanished,
-                                              GINT_TO_POINTER(i),
-                                              NULL);
+			g_debug("Unable to connect to dbus: %s", error->message);
+			g_error_free(error);
+		}
+		else
+		{
+			GVariant *ret = g_dbus_connection_call_sync(connection,
+			                                            "org.freedesktop.DBus",
+			                                            "/org/freedesktop/DBus",
+			                                            "org.freedesktop.DBus",
+			                                            "ListNames",
+			                                            NULL,
+			                                            G_VARIANT_TYPE("(as)"),
+			                                            G_DBUS_CALL_FLAGS_NONE,
+			                                            -1,
+			                                            NULL,
+			                                            &error);
+			if (ret == NULL)
+			{
+				g_debug("Unable to query dbus for ListNames: %s", error->message);
+				g_error_free(error);
+			}
+			else
+			{
+				GVariant *names = g_variant_get_child_value(ret, 0);
+				GVariantIter iter;
+				char *name;
+				g_variant_iter_init(&iter, names);
+				while (g_variant_iter_loop(&iter, "&s", &name))
+				{
+					for (int i = 0; i < 4; i++)
+					{
+						if (g_str_equal(name, REGISTRAR_NAMES[i]))
+						{
+							registrar_present[i] = true;
+						}
+					}
+				}
+				g_variant_unref(names);
+				g_variant_unref(ret);
+			}
+			g_object_unref(connection);
+		}
+
+		for (int i = 0; i < 4; i++)
+		{
+			watcher_ids[i] = g_bus_watch_name(G_BUS_TYPE_SESSION,
+			                                  REGISTRAR_NAMES[i],
+			                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
+			                                  on_name_appeared,
+			                                  on_name_vanished,
+			                                  GINT_TO_POINTER(i),
+			                                  NULL);
 		}
 	}
 	update_registrar_state();

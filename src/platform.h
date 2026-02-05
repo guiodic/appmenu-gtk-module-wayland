@@ -46,7 +46,7 @@ G_GNUC_INTERNAL WindowData *gtk_wayland_window_get_window_data(GtkWindow *window
 extern struct org_kde_kwin_appmenu_manager *org_kde_kwin_appmenu_manager;
 #endif
 
-struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow *gdk_win, char *unique_bus_name, char *menubar_object_path);
+struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow *gdk_win, const char *unique_bus_name, const char *menubar_object_path);
 
 void release_appmenu(struct org_kde_kwin_appmenu *appmenu);
 
