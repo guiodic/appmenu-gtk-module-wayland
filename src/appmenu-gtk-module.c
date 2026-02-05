@@ -27,7 +27,7 @@
 #include "hijack.h"
 #include "support.h"
 
-void gtk_module_init(void)
+G_MODULE_EXPORT void gtk_module_init(gint *argc, gchar ***argv)
 {
 	//if (gtk_module_should_run())
 	{

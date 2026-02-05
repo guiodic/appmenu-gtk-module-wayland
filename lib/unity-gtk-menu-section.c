@@ -394,20 +394,20 @@ void unity_gtk_menu_section_print(UnityGtkMenuSection *section, guint indent)
 
 	if (section != NULL)
 	{
-		g_print("%s%u (%s *) %p\n",
+		g_debug("%s%u (%s *) %p",
 		        space,
 		        section->section_index,
 		        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(section)),
 		        section);
 
 		if (section->parent_shell != NULL)
-			g_print("%s  (%s *) %p\n",
+			g_debug("%s  (%s *) %p",
 			        space,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(section->parent_shell)),
 			        section->parent_shell);
 	}
 	else
-		g_print("%sNULL\n", space);
+		g_debug("%sNULL", space);
 
 	g_free(space);
 }

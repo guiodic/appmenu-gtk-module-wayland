@@ -114,9 +114,70 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 		g_signal_handlers_disconnect_by_data(settings, widget);
 }
 
-#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND)
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+#include "platform.h"
 static uint watcher_ids[4] = { 0, 0, 0, 0 };
 static bool registrar_present[4] = { false, false, false, false };
+
+static const char *const REGISTRAR_NAMES[] = { "com.canonical.AppMenu.Registrar",
+                                               "org.kde.KAppMenu",
+                                               "org.kde.kappmenu",
+                                               "org.ayatana.AppMenu.Registrar" };
+
+static gboolean is_dbus_present(int index)
+{
+	GDBusConnection *connection;
+	GVariant *ret, *names;
+	GVariantIter *iter;
+	char *name;
+	gboolean is_present;
+	GError *error = NULL;
+
+	is_present = false;
+
+	connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+	if (connection == NULL)
+	{
+		g_debug("Unable to connect to dbus: %s", error->message);
+		g_error_free(error);
+		return false;
+	}
+
+	ret = g_dbus_connection_call_sync(connection,
+	                                  "org.freedesktop.DBus",
+	                                  "/org/freedesktop/DBus",
+	                                  "org.freedesktop.DBus",
+	                                  "ListNames",
+	                                  NULL,
+	                                  G_VARIANT_TYPE("(as)"),
+	                                  G_DBUS_CALL_FLAGS_NONE,
+	                                  -1,
+	                                  NULL,
+	                                  &error);
+	if (ret == NULL)
+	{
+		g_debug("Unable to query dbus: %s", error->message);
+		g_error_free(error);
+		g_object_unref(connection);
+		return false;
+	}
+	names = g_variant_get_child_value(ret, 0);
+	g_variant_get(names, "as", &iter);
+	while (g_variant_iter_loop(iter, "s", &name))
+	{
+		if (g_str_equal(name, REGISTRAR_NAMES[index]))
+		{
+			is_present = true;
+			break;
+		}
+	}
+	g_variant_iter_free(iter);
+	g_variant_unref(names);
+	g_variant_unref(ret);
+	g_object_unref(connection);
+
+	return is_present;
+}
 
 G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 {
@@ -146,13 +207,17 @@ static void update_registrar_state()
 			break;
 		}
 	}
+#ifdef GDK_WINDOWING_WAYLAND
+	if (org_kde_kwin_appmenu_manager != NULL)
+		any_present = true;
+#endif
 	set_gtk_shell_shows_menubar(any_present);
 }
 
 static void on_name_appeared(GDBusConnection *connection, const char *name, const char *name_owner,
                              gpointer user_data)
 {
-	g_debug("Name %s on the session bus is owned by %s\n", name, name_owner);
+	g_debug("Name %s on the session bus is owned by %s", name, name_owner);
 
 	int index = GPOINTER_TO_INT(user_data);
 	registrar_present[index] = true;
@@ -161,7 +226,7 @@ static void on_name_appeared(GDBusConnection *connection, const char *name, cons
 
 static void on_name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
 {
-	g_debug("Name %s does not exist on the session bus\n", name);
+	g_debug("Name %s does not exist on the session bus", name);
 
 	int index = GPOINTER_TO_INT(user_data);
 	registrar_present[index] = false;
@@ -171,38 +236,21 @@ static void on_name_vanished(GDBusConnection *connection, const char *name, gpoi
 
 G_GNUC_INTERNAL void watch_registrar_dbus()
 {
-#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND)
-	set_gtk_shell_shows_menubar(false);
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 	if (watcher_ids[0] == 0)
 	{
-		watcher_ids[0] = g_bus_watch_name(G_BUS_TYPE_SESSION,
-		                                  "com.canonical.AppMenu.Registrar",
-		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
-		                                  on_name_appeared,
-		                                  on_name_vanished,
-		                                  GINT_TO_POINTER(0),
-		                                  NULL);
-		watcher_ids[1] = g_bus_watch_name(G_BUS_TYPE_SESSION,
-		                                  "org.kde.KAppMenu",
-		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
-		                                  on_name_appeared,
-		                                  on_name_vanished,
-		                                  GINT_TO_POINTER(1),
-		                                  NULL);
-		watcher_ids[2] = g_bus_watch_name(G_BUS_TYPE_SESSION,
-		                                  "org.kde.kappmenu",
-		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
-		                                  on_name_appeared,
-		                                  on_name_vanished,
-		                                  GINT_TO_POINTER(2),
-		                                  NULL);
-		watcher_ids[3] = g_bus_watch_name(G_BUS_TYPE_SESSION,
-		                                  "org.ayatana.AppMenu.Registrar",
-		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
-		                                  on_name_appeared,
-		                                  on_name_vanished,
-		                                  GINT_TO_POINTER(3),
-		                                  NULL);
+		for (int i = 0; i < 4; i++)
+		{
+			registrar_present[i] = is_dbus_present(i);
+			watcher_ids[i]       = g_bus_watch_name(G_BUS_TYPE_SESSION,
+                                              REGISTRAR_NAMES[i],
+                                              G_BUS_NAME_WATCHER_FLAGS_NONE,
+                                              on_name_appeared,
+                                              on_name_vanished,
+                                              GINT_TO_POINTER(i),
+                                              NULL);
+		}
 	}
+	update_registrar_state();
 #endif
 }

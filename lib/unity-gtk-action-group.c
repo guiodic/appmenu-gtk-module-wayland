@@ -1265,7 +1265,7 @@ void unity_gtk_action_group_print(UnityGtkActionGroup *group, guint indent)
 
 	if (group != NULL)
 	{
-		g_print("%s(%s *) %p\n",
+		g_debug("%s(%s *) %p",
 		        space,
 		        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(group)),
 		        group);
@@ -1279,7 +1279,7 @@ void unity_gtk_action_group_print(UnityGtkActionGroup *group, guint indent)
 			g_hash_table_iter_init(&iter, group->actions_by_name);
 			while (g_hash_table_iter_next(&iter, &key, &value))
 			{
-				g_print("%s  \"%s\" ->\n", space, (const char *)key);
+				g_debug("%s  \"%s\" ->", space, (const char *)key);
 				unity_gtk_action_print(value, indent + 4);
 			}
 		}
@@ -1292,7 +1292,7 @@ void unity_gtk_action_group_print(UnityGtkActionGroup *group, guint indent)
 
 			g_hash_table_iter_init(&iter, group->names_by_radio_menu_item);
 			while (g_hash_table_iter_next(&iter, &key, &value))
-				g_print("%s  (%s *) %p -> \"%s\"\n",
+				g_debug("%s  (%s *) %p -> \"%s\"",
 				        space,
 				        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(key)),
 				        key,
@@ -1300,7 +1300,7 @@ void unity_gtk_action_group_print(UnityGtkActionGroup *group, guint indent)
 		}
 	}
 	else
-		g_print("%sNULL\n", space);
+		g_debug("%sNULL", space);
 
 	g_free(space);
 }
@@ -1314,7 +1314,7 @@ gboolean unity_gtk_action_group_is_debug(void)
  * unity_gtk_action_group_set_debug:
  * @debug: #TRUE to enable debugging output
  *
- * Sets if action group changes should be logged using g_print ().
+ * Sets if action group changes should be logged using g_debug ().
  */
 void unity_gtk_action_group_set_debug(gboolean debug)
 {

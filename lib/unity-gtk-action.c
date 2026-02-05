@@ -123,19 +123,19 @@ void unity_gtk_action_print(UnityGtkAction *action, guint indent)
 
 	if (action != NULL)
 	{
-		g_print("%s(%s *) %p\n",
+		g_debug("%s(%s *) %p",
 		        space,
 		        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(action)),
 		        action);
 
 		if (action->name != NULL)
-			g_print("%s  \"%s\"\n", space, action->name);
+			g_debug("%s  \"%s\"", space, action->name);
 
 		if (action->subname != NULL)
-			g_print("%s  \"%s\"\n", space, action->subname);
+			g_debug("%s  \"%s\"", space, action->subname);
 
 		if (action->item != NULL)
-			g_print("%s  (%s *) %p\n",
+			g_debug("%s  (%s *) %p",
 			        space,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(action->item)),
 			        action->item);
@@ -148,7 +148,7 @@ void unity_gtk_action_print(UnityGtkAction *action, guint indent)
 
 			g_hash_table_iter_init(&iter, action->items_by_name);
 			while (g_hash_table_iter_next(&iter, &key, &value))
-				g_print("%s  \"%s\" -> (%s *) %p\n",
+				g_debug("%s  \"%s\" -> (%s *) %p",
 				        space,
 				        (const char *)key,
 				        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(value)),
@@ -156,7 +156,7 @@ void unity_gtk_action_print(UnityGtkAction *action, guint indent)
 		}
 	}
 	else
-		g_print("%sNULL\n", space);
+		g_debug("%sNULL", space);
 
 	g_free(space);
 }
