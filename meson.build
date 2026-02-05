@@ -35,6 +35,11 @@ gtk_versions = get_option('gtk')
 gtk2_requested = '2' in gtk_versions
 gtk3_requested = '3' in gtk_versions
 
+dbusmenu_glib = dependency('dbusmenu-glib-0.4')
+dbusmenu_gtk3 = dependency('dbusmenu-gtk3-0.4', required: gtk3_requested)
+dbusmenu_gtk2 = dependency('dbusmenu-gtk-0.4', required: gtk2_requested)
+wayland_client = dependency('wayland-client', required: gtk3_requested)
+
 gtk2_ver = '>=2.24.0'
 gtk3_ver = '>=3.22.0'
 
