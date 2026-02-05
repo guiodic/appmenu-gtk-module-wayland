@@ -680,7 +680,7 @@ static void unity_gtk_menu_shell_handle_shell_insert(GtkMenuShell *menu_shell, G
 	g_return_if_fail(UNITY_GTK_IS_MENU_SHELL(user_data));
 
 	if (unity_gtk_menu_shell_is_debug())
-		g_print("%s ((%s *) %p, (%s *) %p \"%s\", %d, (%s *) %p)\n",
+		g_debug("%s ((%s *) %p, (%s *) %p \"%s\", %d, (%s *) %p)",
 		        G_STRFUNC,
 		        G_OBJECT_TYPE_NAME(menu_shell),
 		        menu_shell,
@@ -1065,7 +1065,7 @@ void unity_gtk_menu_shell_handle_item_notify(UnityGtkMenuShell *shell, UnityGtkM
 	name = g_intern_string(property);
 
 	if (unity_gtk_menu_shell_is_debug())
-		g_print("%s ((%s *) %p, (%s *) %p { \"%s\" }, %s)\n",
+		g_debug("%s ((%s *) %p, (%s *) %p { \"%s\" }, %s)",
 		        G_STRFUNC,
 		        G_OBJECT_TYPE_NAME(shell),
 		        shell,
@@ -1136,13 +1136,13 @@ void unity_gtk_menu_shell_print(UnityGtkMenuShell *shell, guint indent)
 
 	if (shell != NULL)
 	{
-		g_print("%s(%s *) %p\n",
+		g_debug("%s(%s *) %p",
 		        space,
 		        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(shell)),
 		        shell);
 
 		if (shell->menu_shell != NULL)
-			g_print("%s  (%s *) %p\n",
+			g_debug("%s  (%s *) %p",
 			        space,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(shell->menu_shell)),
 			        shell->menu_shell);
@@ -1168,41 +1168,45 @@ void unity_gtk_menu_shell_print(UnityGtkMenuShell *shell, guint indent)
 		if (shell->visible_indices != NULL)
 		{
 			GSequenceIter *iter = g_sequence_get_begin_iter(shell->visible_indices);
-
-			g_print("%s ", space);
+			GString *str = g_string_new(space);
+			g_string_append(str, " ");
 
 			while (!g_sequence_iter_is_end(iter))
 			{
-				g_print(" %u", g_sequence_get_uint(iter));
+				g_string_append_printf(str, " %u", g_sequence_get_uint(iter));
 				iter = g_sequence_iter_next(iter);
 			}
 
-			g_print("\n");
+			if (str->len > strlen(space) + 1)
+				g_debug("%s", str->str);
+			g_string_free(str, TRUE);
 		}
 
 		if (shell->separator_indices != NULL)
 		{
 			GSequenceIter *iter = g_sequence_get_begin_iter(shell->separator_indices);
-
-			g_print("%s ", space);
+			GString *str = g_string_new(space);
+			g_string_append(str, " ");
 
 			while (!g_sequence_iter_is_end(iter))
 			{
-				g_print(" %u", g_sequence_get_uint(iter));
+				g_string_append_printf(str, " %u", g_sequence_get_uint(iter));
 				iter = g_sequence_iter_next(iter);
 			}
 
-			g_print("\n");
+			if (str->len > strlen(space) + 1)
+				g_debug("%s", str->str);
+			g_string_free(str, TRUE);
 		}
 
 		if (shell->action_group != NULL)
-			g_print("%s  (%s *) %p\n",
+			g_debug("%s  (%s *) %p",
 			        space,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(shell->action_group)),
 			        shell->action_group);
 	}
 	else
-		g_print("%sNULL\n", space);
+		g_debug("%sNULL", space);
 
 	g_free(space);
 }
@@ -1216,7 +1220,7 @@ gboolean unity_gtk_menu_shell_is_debug(void)
  * unity_gtk_menu_shell_set_debug:
  * @debug: #TRUE to enable debugging output
  *
- * Sets if menu shell changes should be logged using g_print ().
+ * Sets if menu shell changes should be logged using g_debug ().
  */
 void unity_gtk_menu_shell_set_debug(gboolean debug)
 {

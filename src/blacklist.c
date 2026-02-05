@@ -66,7 +66,7 @@ static bool is_string_in_array(const char *string, GVariant *array)
 
 static bool is_listed(const char *name, const char *key)
 {
-	return true;
+	return false;
 }
 
 G_GNUC_INTERNAL

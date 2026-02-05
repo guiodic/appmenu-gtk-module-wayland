@@ -68,7 +68,7 @@ static void (*pre_hijacked_menu_bar_get_preferred_height_for_width)(GtkWidget *w
 
 static void hijacked_window_realize(GtkWidget *widget)
 {
-	g_print("hijacked_window_realize\n");
+	g_debug("hijacked_window_realize");
 	g_return_if_fail(GTK_IS_WINDOW(widget));
 
 	GdkScreen *screen      = gtk_widget_get_screen(widget);
@@ -102,9 +102,9 @@ static void hijacked_window_unrealize(GtkWidget *widget)
 
 static void hijacked_application_window_realize(GtkWidget *widget)
 {
-	g_print("hijacked_application_window_realize\n");
+	g_debug("hijacked_application_window_realize");
 	g_return_if_fail(GTK_IS_APPLICATION_WINDOW(widget));
-	g_print("hijacked_application_window_realize: GTK_IS_APPLICATION_WINDOW\n");
+	g_debug("hijacked_application_window_realize: GTK_IS_APPLICATION_WINDOW");
 
 	if (pre_hijacked_application_window_realize != NULL)
 		pre_hijacked_application_window_realize(widget);
@@ -115,7 +115,7 @@ static void hijacked_application_window_realize(GtkWidget *widget)
 
 static void hijacked_menu_bar_realize(GtkWidget *widget)
 {
-	g_print("hijacked_menu_bar_realize\n");
+	g_debug("hijacked_menu_bar_realize");
 	GtkWidget *window;
 
 	g_return_if_fail(GTK_IS_MENU_BAR(widget));

@@ -30,6 +30,17 @@
 #include "blacklist.h"
 #include "consts.h"
 #include "support.h"
+#include "platform.h"
+
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+static uint watcher_ids[4] = { 0, 0, 0, 0 };
+static bool registrar_present[4] = { false, false, false, false };
+
+static const char *const REGISTRAR_NAMES[] = { "com.canonical.AppMenu.Registrar",
+                                               "org.kde.KAppMenu",
+                                               "org.kde.kappmenu",
+                                               "org.ayatana.AppMenu.Registrar" };
+#endif
 
 static bool is_true(const char *value)
 {
@@ -72,7 +83,17 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
-	// return true;
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+	for (int i = 0; i < 4; i++)
+	{
+		if (registrar_present[i])
+			return true;
+	}
+#ifdef GDK_WINDOWING_WAYLAND
+	if (org_kde_kwin_appmenu_manager != NULL)
+		return true;
+#endif
+#endif
 	GtkSettings *settings;
 	GParamSpec *pspec;
 	gboolean shell_shows_menubar;
@@ -86,7 +107,9 @@ G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 	pspec =
 	    g_object_class_find_property(G_OBJECT_GET_CLASS(settings), "gtk-shell-shows-menubar");
 
-	g_return_val_if_fail(G_IS_PARAM_SPEC(pspec), false);
+	if (pspec == NULL)
+		return false;
+
 	g_return_val_if_fail(pspec->value_type == G_TYPE_BOOLEAN, false);
 
 	g_object_get(settings, "gtk-shell-shows-menubar", &shell_shows_menubar, NULL);
@@ -114,10 +137,8 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 		g_signal_handlers_disconnect_by_data(settings, widget);
 }
 
-#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND)
-static uint watcher_id = 0;
-
-static gboolean is_dbus_present()
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+static gboolean is_dbus_present(int index)
 {
 	GDBusConnection *connection;
 	GVariant *ret, *names;
@@ -131,7 +152,7 @@ static gboolean is_dbus_present()
 	connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
 	if (connection == NULL)
 	{
-		g_warning("Unable to connect to dbus: %s", error->message);
+		g_debug("Unable to connect to dbus: %s", error->message);
 		g_error_free(error);
 		return false;
 	}
@@ -149,15 +170,16 @@ static gboolean is_dbus_present()
 	                                  &error);
 	if (ret == NULL)
 	{
-		g_warning("Unable to query dbus: %s", error->message);
+		g_debug("Unable to query dbus: %s", error->message);
 		g_error_free(error);
+		g_object_unref(connection);
 		return false;
 	}
 	names = g_variant_get_child_value(ret, 0);
 	g_variant_get(names, "as", &iter);
 	while (g_variant_iter_loop(iter, "s", &name))
 	{
-		if (g_str_equal(name, "com.canonical.AppMenu.Registrar"))
+		if (g_str_equal(name, REGISTRAR_NAMES[index]))
 		{
 			is_present = true;
 			break;
@@ -166,57 +188,87 @@ static gboolean is_dbus_present()
 	g_variant_iter_free(iter);
 	g_variant_unref(names);
 	g_variant_unref(ret);
+	g_object_unref(connection);
 
 	return is_present;
 }
 
-static bool set_gtk_shell_shows_menubar(bool shows)
+G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 {
 	GtkSettings *settings = gtk_settings_get_default();
 
-	g_return_val_if_fail(GTK_IS_SETTINGS(settings), false);
+	if (settings == NULL)
+		return false;
+
+#ifdef GDK_WINDOWING_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
+		return true;
+#endif
 
 	GParamSpec *pspec =
 	    g_object_class_find_property(G_OBJECT_GET_CLASS(settings), "gtk-shell-shows-menubar");
 
-	g_return_val_if_fail(G_IS_PARAM_SPEC(pspec), false);
-	g_return_val_if_fail(pspec->value_type == G_TYPE_BOOLEAN, false);
-
-	g_object_set(settings, "gtk-shell-shows-menubar", shows, NULL);
+	if (pspec && pspec->value_type == G_TYPE_BOOLEAN)
+		g_object_set(settings, "gtk-shell-shows-menubar", shows, NULL);
 
 	return true;
+}
+
+static void update_registrar_state()
+{
+	bool any_present = false;
+	for (int i = 0; i < 4; i++)
+	{
+		if (registrar_present[i])
+		{
+			any_present = true;
+			break;
+		}
+	}
+#ifdef GDK_WINDOWING_WAYLAND
+	if (org_kde_kwin_appmenu_manager != NULL)
+		any_present = true;
+#endif
+	set_gtk_shell_shows_menubar(any_present);
 }
 
 static void on_name_appeared(GDBusConnection *connection, const char *name, const char *name_owner,
                              gpointer user_data)
 {
-	g_debug("Name %s on the session bus is owned by %s\n", name, name_owner);
+	g_debug("Name %s on the session bus is owned by %s", name, name_owner);
 
-	set_gtk_shell_shows_menubar(true);
+	int index = GPOINTER_TO_INT(user_data);
+	registrar_present[index] = true;
+	update_registrar_state();
 }
 
 static void on_name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
 {
-	g_debug("Name %s does not exist on the session bus\n", name);
+	g_debug("Name %s does not exist on the session bus", name);
 
-	set_gtk_shell_shows_menubar(false);
+	int index = GPOINTER_TO_INT(user_data);
+	registrar_present[index] = false;
+	update_registrar_state();
 }
 #endif
 
 G_GNUC_INTERNAL void watch_registrar_dbus()
 {
-#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND)
-	set_gtk_shell_shows_menubar(is_dbus_present());
-
-	if (watcher_id == 0)
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+	if (watcher_ids[0] == 0)
 	{
-		watcher_id = g_bus_watch_name(G_BUS_TYPE_SESSION,
-		                              "com.canonical.AppMenu.Registrar",
-		                              G_BUS_NAME_WATCHER_FLAGS_NONE,
-		                              on_name_appeared,
-		                              on_name_vanished,
-		                              NULL,
-		                              NULL);
+		for (int i = 0; i < 4; i++)
+		{
+			registrar_present[i] = is_dbus_present(i);
+			watcher_ids[i]       = g_bus_watch_name(G_BUS_TYPE_SESSION,
+                                              REGISTRAR_NAMES[i],
+                                              G_BUS_NAME_WATCHER_FLAGS_NONE,
+                                              on_name_appeared,
+                                              on_name_vanished,
+                                              GINT_TO_POINTER(i),
+                                              NULL);
+		}
 	}
+	update_registrar_state();
 #endif
 }

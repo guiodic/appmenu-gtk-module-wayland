@@ -880,27 +880,27 @@ void unity_gtk_menu_item_print(UnityGtkMenuItem *item, guint indent)
 		const char *label = unity_gtk_menu_item_get_label(item);
 
 		if (label != NULL)
-			g_print("%s%u (%s *) %p \"%s\"\n",
+			g_debug("%s%u (%s *) %p \"%s\"",
 			        space,
 			        item->item_index,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(item)),
 			        item,
 			        label);
 		else
-			g_print("%s%u (%s *) %p\n",
+			g_debug("%s%u (%s *) %p",
 			        space,
 			        item->item_index,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(item)),
 			        item);
 
 		if (item->menu_item != NULL)
-			g_print("%s  (%s *) %p\n",
+			g_debug("%s  (%s *) %p",
 			        space,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(item->menu_item)),
 			        item->menu_item);
 
 		if (item->parent_shell != NULL)
-			g_print("%s  (%s *) %p\n",
+			g_debug("%s  (%s *) %p",
 			        space,
 			        G_OBJECT_CLASS_NAME(G_OBJECT_GET_CLASS(item->parent_shell)),
 			        item->parent_shell);
@@ -908,7 +908,7 @@ void unity_gtk_menu_item_print(UnityGtkMenuItem *item, guint indent)
 		if (item->child_shell_valid || item->child_shell != NULL)
 		{
 			if (!item->child_shell_valid)
-				g_print("%s  invalid\n", space);
+				g_debug("%s  invalid", space);
 
 			unity_gtk_menu_shell_print(item->child_shell, indent + 2);
 		}
@@ -917,7 +917,7 @@ void unity_gtk_menu_item_print(UnityGtkMenuItem *item, guint indent)
 			unity_gtk_action_print(item->action, indent + 2);
 	}
 	else
-		g_print("%sNULL\n", space);
+		g_debug("%sNULL", space);
 
 	g_free(space);
 }
