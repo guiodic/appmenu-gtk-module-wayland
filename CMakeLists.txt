@@ -25,7 +25,11 @@ add_library(appmenu-gtk-module-wayland  SHARED
 target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}")
 target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB)
 
-set(TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+option(BUILD_TESTS "Build test applications" OFF)
 
-add_executable(unity-gtk-menu-tester "${TEST_DIR}/demos/unity-gtk-menu-tester.c")
-target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
+if(BUILD_TESTS)
+    set(TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+    add_executable(unity-gtk-menu-tester "${TEST_DIR}/demos/unity-gtk-menu-tester.c")
+    target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
+endif()
