@@ -199,12 +199,14 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 
 		if (menu_shell_data->server != NULL)
 		{
-			DbusmenuServer *srv = menu_shell_data->server;
-			window_data->dbusmenu_servers =
-			    g_slist_remove(window_data->dbusmenu_servers, srv);
-			g_object_unref(srv); // unref for list removal
-			g_object_unref(srv); // unref for MenuShellData
-			menu_shell_data->server = NULL;
+		    DbusmenuServer *srv = menu_shell_data->server;
+		    GSList *link = g_slist_find(window_data->dbusmenu_servers, srv);
+		    if (link) {
+			window_data->dbusmenu_servers = g_slist_delete_link(window_data->dbusmenu_servers, link);
+			g_object_unref(srv); // unref for list
+		    }
+		    g_object_unref(srv); // unref for MenuShellData
+		    menu_shell_data->server = NULL;
 		}
 
 		menu_shell_data->window = NULL;
