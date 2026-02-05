@@ -26,6 +26,7 @@
 #define DATASTRUCTSPRIVATE_H
 
 #include <gtk/gtk.h>
+#include <libdbusmenu-glib/server.h>
 
 struct _WindowData
 {
@@ -41,6 +42,7 @@ struct _WindowData
 struct _MenuShellData
 {
 	GtkWindow *window;
+	DbusmenuServer *server;
 };
 
 #endif // DATASTRUCTSPRIVATE_H

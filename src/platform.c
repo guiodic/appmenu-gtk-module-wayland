@@ -181,8 +181,6 @@ G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window)
 		window_data             = window_data_new();
 		window_data->window_id  = window_id++;
 		window_data->menu_model = g_menu_new();
-		// window_data->action_group =
-		//     unity_gtk_action_group_new(G_ACTION_GROUP(old_action_group));
 
 		if (old_menu_model != NULL)
 		{
@@ -191,21 +189,6 @@ G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window)
 			                      NULL,
 			                      G_MENU_MODEL(old_menu_model));
 		}
-
-		// window_data->menu_model_export_id =
-		//     g_dbus_connection_export_menu_model(session,
-		//                                         old_menubar_object_path != NULL
-		//                                             ? old_menubar_object_path
-		//                                             : object_path,
-		//                                         G_MENU_MODEL(window_data->menu_model),
-		//                                         NULL);
-		// window_data->action_group_export_id =
-		//     g_dbus_connection_export_action_group(session,
-		//                                           old_unity_object_path != NULL
-		//                                               ? old_unity_object_path
-		//                                               : object_path,
-		//                                           G_ACTION_GROUP(window_data->action_group),
-		//                                           NULL);
 
 		if (old_unique_bus_name == NULL)
 			gtk_widget_set_x11_property_string(GTK_WIDGET(window),
@@ -301,7 +284,7 @@ void appmenu_wl_init()
 	}
 }
 
-struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow* gdk_win, char* unique_bus_name, char* menubar_object_path)
+struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow* gdk_win, const char* unique_bus_name, const char* menubar_object_path)
 {
 	if (gdk_win == NULL)
 	{
