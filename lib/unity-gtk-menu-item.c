@@ -788,22 +788,57 @@ const char *unity_gtk_menu_item_get_label(UnityGtkMenuItem *item)
 	return item->label_label;
 }
 
-GIcon *unity_gtk_menu_item_get_icon(UnityGtkMenuItem *item)
+GIcon *gtk_menu_item_get_icon(GtkMenuItem *menu_item)
 {
-	GIcon *icon = NULL;
+	GIcon *icon     = NULL;
+	GtkImage *image = NULL;
 
-	g_return_val_if_fail(UNITY_GTK_IS_MENU_ITEM(item), NULL);
+	g_return_val_if_fail(GTK_IS_MENU_ITEM(menu_item), NULL);
 
 	G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-	if (item->menu_item != NULL && !GTK_IS_IMAGE_MENU_ITEM(item->menu_item))
-	{
-		GtkImage *image = gtk_menu_item_get_nth_image(item->menu_item, 0);
+	if (GTK_IS_IMAGE_MENU_ITEM(menu_item))
+		image = GTK_IMAGE(
+		    gtk_image_menu_item_get_image(GTK_IMAGE_MENU_ITEM(menu_item)));
 
-		if (image != NULL)
-			icon = gtk_image_get_icon(image);
+	if (image == NULL)
+		image = gtk_menu_item_get_nth_image(menu_item, 0);
+
+	if (image != NULL && GTK_IS_IMAGE(image))
+		icon = gtk_image_get_icon(image);
+
+	if (icon == NULL && GTK_IS_ACTIVATABLE(menu_item))
+	{
+		GtkAction *action =
+		    gtk_activatable_get_related_action(GTK_ACTIVATABLE(menu_item));
+
+		if (action != NULL)
+		{
+			const char *name = gtk_action_get_icon_name(action);
+
+			if (name != NULL)
+				icon = G_ICON(g_themed_icon_new_with_default_fallbacks(name));
+			else
+			{
+				icon = gtk_action_get_gicon(action);
+
+				if (icon != NULL)
+					g_object_ref(icon);
+			}
+		}
 	}
 	G_GNUC_END_IGNORE_DEPRECATIONS
+
 	return icon;
+}
+
+GIcon *unity_gtk_menu_item_get_icon(UnityGtkMenuItem *item)
+{
+	g_return_val_if_fail(UNITY_GTK_IS_MENU_ITEM(item), NULL);
+
+	if (item->menu_item != NULL)
+		return gtk_menu_item_get_icon(item->menu_item);
+
+	return NULL;
 }
 
 gboolean unity_gtk_menu_item_is_visible(UnityGtkMenuItem *item)

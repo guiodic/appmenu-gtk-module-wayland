@@ -27,8 +27,13 @@
 #include "platform.h"
 
 #include <libdbusmenu-glib/server.h>
+#include <libdbusmenu-glib/menuitem.h>
 #include <libdbusmenu-gtk/parser.h>
+#include "unity-gtk-menu-item-private.h"
 
+/* These might not be in the public headers but are usually exported by libdbusmenu-gtk */
+DbusmenuMenuitem * dbusmenu_gtk_parse_get_cached_item (GtkWidget * widget);
+DbusmenuMenuitem * dbusmenu_gtk_parse_get_item (GtkWidget * widget);
 
 G_GNUC_INTERNAL G_DEFINE_QUARK(window_data, window_data);
 G_DEFINE_BOXED_TYPE(WindowData, window_data, (GBoxedCopyFunc)window_data_copy,
@@ -205,6 +210,127 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 	}
 }
 
+static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data);
+
+static void on_menu_show(GtkWidget *widget, gpointer user_data)
+{
+	g_debug("APPMENU-GTK-WAYLAND: menu show, re-fixing icons for %p", widget);
+	fix_dbusmenu_icons(widget, NULL);
+}
+
+static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
+{
+	if (GTK_IS_MENU_ITEM(widget))
+	{
+		DbusmenuMenuitem *item = g_object_get_data(G_OBJECT(widget), "dbusmenu-gtk-item");
+
+		if (item == NULL)
+			item = dbusmenu_gtk_parse_get_cached_item(widget);
+
+		if (item == NULL)
+			item = dbusmenu_gtk_parse_get_item(widget);
+
+		if (item != NULL)
+		{
+			/* Only set the icon if it's not already set by libdbusmenu-gtk */
+			if (dbusmenu_menuitem_property_get(item, "icon-name") == NULL &&
+			    dbusmenu_menuitem_property_get_variant(item, "icon-data") == NULL)
+			{
+				/* gtk_menu_item_get_icon returns a new reference (strongly reffed)
+				 * to ensure the icon remains valid during processing.
+				 */
+				GIcon *icon = gtk_menu_item_get_icon(GTK_MENU_ITEM(widget));
+				if (icon != NULL)
+				{
+					if (G_IS_THEMED_ICON(icon))
+					{
+						const gchar *const *names =
+						    g_themed_icon_get_names(G_THEMED_ICON(icon));
+						if (names != NULL && names[0] != NULL)
+						{
+							g_debug("APPMENU-GTK-WAYLAND: fixing icon-name: %s for %p",
+							        names[0], widget);
+							dbusmenu_menuitem_property_set(item,
+							                               "icon-name",
+							                               names[0]);
+							dbusmenu_menuitem_property_set_variant(
+							    item,
+							    "icon-visible",
+							    g_variant_new_boolean(TRUE));
+						}
+					}
+					else if (GDK_IS_PIXBUF(icon))
+					{
+						GdkPixbuf *pixbuf = GDK_PIXBUF(icon);
+						GVariant *variant = g_variant_new(
+						    "(iiibay)",
+						    gdk_pixbuf_get_width(pixbuf),
+						    gdk_pixbuf_get_height(pixbuf),
+						    gdk_pixbuf_get_rowstride(pixbuf),
+						    gdk_pixbuf_get_has_alpha(pixbuf),
+						    g_variant_new_fixed_array(
+						        G_VARIANT_TYPE_BYTE,
+						        gdk_pixbuf_get_pixels(pixbuf),
+						        (gsize)gdk_pixbuf_get_height(pixbuf) *
+						            gdk_pixbuf_get_rowstride(pixbuf),
+						        sizeof(guchar)));
+						g_debug("APPMENU-GTK-WAYLAND: fixing icon-data (pixbuf) for %p", widget);
+						dbusmenu_menuitem_property_set_variant(item,
+						                                       "icon-data",
+						                                       variant);
+						dbusmenu_menuitem_property_set_variant(
+						    item,
+						    "icon-visible",
+						    g_variant_new_boolean(TRUE));
+					}
+					g_object_unref(icon);
+				}
+			}
+		}
+
+		GtkWidget *submenu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget));
+		if (submenu != NULL)
+		{
+			if (g_signal_handler_find(submenu, G_SIGNAL_MATCH_FUNC, 0, 0, NULL, on_menu_show,
+			                          NULL) == 0)
+			{
+				g_signal_connect(submenu, "show", G_CALLBACK(on_menu_show), NULL);
+			}
+			fix_dbusmenu_icons(submenu, NULL);
+		}
+	}
+
+	if (GTK_IS_CONTAINER(widget))
+	{
+		gtk_container_forall(GTK_CONTAINER(widget), (GtkCallback)fix_dbusmenu_icons, NULL);
+	}
+}
+
+typedef struct
+{
+	GtkWidget *widget;
+} FixIconsData;
+
+static gboolean fix_icons_idle(gpointer data)
+{
+	FixIconsData *fid = data;
+	if (fid->widget != NULL)
+	{
+		fix_dbusmenu_icons(fid->widget, NULL);
+		g_object_remove_weak_pointer(G_OBJECT(fid->widget), (gpointer *)&fid->widget);
+	}
+	g_free(fid);
+	return G_SOURCE_REMOVE;
+}
+
+static void schedule_fix_icons(GtkWidget *widget)
+{
+	FixIconsData *fid = g_new0(FixIconsData, 1);
+	fid->widget       = widget;
+	g_object_add_weak_pointer(G_OBJECT(widget), (gpointer *)&fid->widget);
+	g_idle_add(fix_icons_idle, fid);
+}
+
 G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
 {
 	g_debug("============== gtk_window_connect_menu_shell");
@@ -242,6 +368,12 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 				{
 					g_debug("gtk_window_connect_menu_shell: failed to parse menu structure");
 				}
+				else
+				{
+					fix_dbusmenu_icons(GTK_WIDGET(menu_shell), NULL);
+					schedule_fix_icons(GTK_WIDGET(menu_shell));
+				}
+
 				gchar *path = g_strdup_printf("/MenuBar/%d/%p", window_data->window_id, menu_shell);
 				DbusmenuServer *srv = dbusmenu_server_new(path);
 				dbusmenu_server_set_root(srv, item);
