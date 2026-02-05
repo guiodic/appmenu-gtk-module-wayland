@@ -18,11 +18,7 @@ wayland_sources = files(
     '../wayland/generated/appmenu.c'
 )
 
-module_subdirs = ['gtk-2.0','gtk-3.0']
-
-if build_gtk2
-    subdir('gtk-2.0')
-endif
+module_subdirs = ['gtk-3.0']
 
 if build_gtk3
     subdir('gtk-3.0')

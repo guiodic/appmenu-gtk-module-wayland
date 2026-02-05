@@ -33,9 +33,6 @@ Ubuntu users now does not need to install this.
  * GLib (>= 2.50.0)
  * GTK+ (>= 3.22.0)
 
-*GTK2 Support*
- * GTK+ (>= 2.24.0)
-
 *Demos*
  * valac (>= 0.24.0)
  
@@ -51,8 +48,6 @@ Usage Instructions
 `gsettings set org.gnome.settings-daemon.plugins.xsettings enabled-gtk-modules "['appmenu-gtk-module']"`
 
 **OTHER**
-- Create file .gtkrc-2.0 into your home directory, if it do not exists already
-    - Add to this file `gtk-modules="appmenu-gtk-module"`
 - Create file .config/gtk-3.0/settings.ini into your home directory, if it do not exists already
 Add to this file:
     - If it is just created, `[Settings]`
