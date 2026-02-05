@@ -74,11 +74,7 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 
 G_GNUC_INTERNAL WindowData *window_data_copy(WindowData *source)
 {
-	WindowData *ret             = window_data_new();
-	// ret->action_group_export_id = source->action_group_export_id;
-	// ret->menu_model_export_id   = source->menu_model_export_id;
-	// if (source->action_group != NULL)
-	// 	ret->action_group = g_object_ref(source->action_group);
+	WindowData *ret = window_data_new();
 
 	if (source->menu_model != NULL)
 		ret->menu_model = g_object_ref(source->menu_model);
@@ -99,8 +95,13 @@ G_GNUC_INTERNAL MenuShellData *menu_shell_data_new(void)
 
 G_GNUC_INTERNAL void menu_shell_data_free(gpointer data)
 {
-	if (data != NULL)
-		g_slice_free(MenuShellData, data);
+	MenuShellData *menu_shell_data = data;
+	if (menu_shell_data != NULL)
+	{
+		if (menu_shell_data->server != NULL)
+			g_object_unref(menu_shell_data->server);
+		g_slice_free(MenuShellData, menu_shell_data);
+	}
 }
 
 G_GNUC_INTERNAL MenuShellData *menu_shell_data_copy(MenuShellData *source)
@@ -158,12 +159,11 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 #if (defined(GDK_WINDOWING_X11))
 #if GTK_MAJOR_VERSION == 3
 	if (GDK_IS_X11_DISPLAY(gdk_display_get_default()))
+#endif
 	{
-		g_debug("GDK_IS_X11_DISPLAY");
-#endif
 		window_data = gtk_x11_window_get_window_data(window);
-#endif
 	}
+#endif
 	return window_data;
 }
 
@@ -198,12 +198,17 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 		{
 			g_menu_remove(window_data->menu_model, i);
 
-			// unity_gtk_action_group_disconnect_shell(window_data->action_group,
-			//                                         iter->data);
-
 			g_object_unref(iter->data);
 
 			window_data->menus = g_slist_delete_link(window_data->menus, iter);
+		}
+
+		if (menu_shell_data->server != NULL)
+		{
+			window_data->dbusmenu_servers =
+			    g_slist_remove(window_data->dbusmenu_servers, menu_shell_data->server);
+			g_object_unref(menu_shell_data->server);
+			menu_shell_data->server = NULL;
 		}
 
 		menu_shell_data->window = NULL;
@@ -405,9 +410,11 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 				gchar *path = g_strdup_printf("/MenuBar/%d/%p", window_data->window_id, menu_shell);
 				DbusmenuServer *srv = dbusmenu_server_new(path);
 				dbusmenu_server_set_root(srv, item);
-				g_object_unref(item);
+				if (item != NULL)
+					g_object_unref(item);
 
 				window_data->dbusmenu_servers = g_slist_append(window_data->dbusmenu_servers, srv);
+				menu_shell_data->server       = srv;
 
 				GDBusConnection* connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
 				if (connection != NULL)
