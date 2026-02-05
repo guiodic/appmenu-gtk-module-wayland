@@ -196,8 +196,17 @@ G_GNUC_INTERNAL void watch_registrar_dbus()
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 	if (watcher_ids[0] == 0)
 	{
-		GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-		if (connection != NULL)
+		for (int i = 0; i < 4; i++)
+			registrar_present[i] = false;
+
+		GError *error               = NULL;
+		GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+		if (connection == NULL)
+		{
+			g_debug("Unable to connect to dbus: %s", error->message);
+			g_error_free(error);
+		}
+		else
 		{
 			GVariant *ret = g_dbus_connection_call_sync(connection,
 			                                            "org.freedesktop.DBus",
@@ -209,8 +218,13 @@ G_GNUC_INTERNAL void watch_registrar_dbus()
 			                                            G_DBUS_CALL_FLAGS_NONE,
 			                                            -1,
 			                                            NULL,
-			                                            NULL);
-			if (ret != NULL)
+			                                            &error);
+			if (ret == NULL)
+			{
+				g_debug("Unable to query dbus for ListNames: %s", error->message);
+				g_error_free(error);
+			}
+			else
 			{
 				GVariant *names = g_variant_get_child_value(ret, 0);
 				GVariantIter iter;

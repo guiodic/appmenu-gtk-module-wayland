@@ -205,9 +205,11 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 
 		if (menu_shell_data->server != NULL)
 		{
+			DbusmenuServer *srv = menu_shell_data->server;
 			window_data->dbusmenu_servers =
-			    g_slist_remove(window_data->dbusmenu_servers, menu_shell_data->server);
-			g_object_unref(menu_shell_data->server);
+			    g_slist_remove(window_data->dbusmenu_servers, srv);
+			g_object_unref(srv); // unref for list removal
+			g_object_unref(srv); // unref for MenuShellData
 			menu_shell_data->server = NULL;
 		}
 
@@ -296,7 +298,7 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 						{
 							g_debug("APPMENU-GTK-WAYLAND: fixing icon-data for %p (new_pixbuf: %d)", widget, new_pixbuf);
 							GVariant *variant = g_variant_new(
-							    "(iiibay)",
+							    "(iiib^ay)",
 							    gdk_pixbuf_get_width(pixbuf),
 							    gdk_pixbuf_get_height(pixbuf),
 							    gdk_pixbuf_get_rowstride(pixbuf),
@@ -414,7 +416,7 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 					g_object_unref(item);
 
 				window_data->dbusmenu_servers = g_slist_append(window_data->dbusmenu_servers, srv);
-				menu_shell_data->server       = srv;
+				menu_shell_data->server       = g_object_ref(srv);
 
 				GDBusConnection* connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
 				if (connection != NULL)
