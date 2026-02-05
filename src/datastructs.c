@@ -185,19 +185,13 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 	if (window_data != NULL)
 	{
 		GSList *iter;
-		guint i = 0;
 
-		if (window_data->old_model != NULL)
-			i++;
-
-		for (iter = window_data->menus; iter != NULL; iter = g_slist_next(iter), i++)
+		for (iter = window_data->menus; iter != NULL; iter = g_slist_next(iter))
 			if (GTK_MENU_SHELL(iter->data) == menu_shell)
 				break;
 
 		if (iter != NULL)
 		{
-			g_menu_remove(window_data->menu_model, i);
-
 			g_object_unref(iter->data);
 
 			window_data->menus = g_slist_delete_link(window_data->menus, iter);
@@ -297,15 +291,20 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 						if (pixbuf)
 						{
 							g_debug("APPMENU-GTK-WAYLAND: fixing icon-data for %p (new_pixbuf: %d)", widget, new_pixbuf);
+							GVariant *pixels = g_variant_new_from_data(
+							    G_VARIANT_TYPE("ay"),
+							    gdk_pixbuf_get_pixels(pixbuf),
+							    (gsize)gdk_pixbuf_get_height(pixbuf) * gdk_pixbuf_get_rowstride(pixbuf),
+							    TRUE,
+							    (GDestroyNotify)g_object_unref,
+							    g_object_ref(pixbuf));
 							GVariant *variant = g_variant_new(
-							    "(iiib^ay)",
+							    "(iiib@ay)",
 							    gdk_pixbuf_get_width(pixbuf),
 							    gdk_pixbuf_get_height(pixbuf),
 							    gdk_pixbuf_get_rowstride(pixbuf),
 							    gdk_pixbuf_get_has_alpha(pixbuf),
-							    gdk_pixbuf_get_pixels(pixbuf),
-							    (gsize)gdk_pixbuf_get_height(pixbuf) *
-							        gdk_pixbuf_get_rowstride(pixbuf));
+							    pixels);
 
 							dbusmenu_menuitem_property_set_variant(
 							    item,
