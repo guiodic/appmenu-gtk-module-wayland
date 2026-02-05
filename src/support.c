@@ -30,6 +30,17 @@
 #include "blacklist.h"
 #include "consts.h"
 #include "support.h"
+#include "platform.h"
+
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+static uint watcher_ids[4] = { 0, 0, 0, 0 };
+static bool registrar_present[4] = { false, false, false, false };
+
+static const char *const REGISTRAR_NAMES[] = { "com.canonical.AppMenu.Registrar",
+                                               "org.kde.KAppMenu",
+                                               "org.kde.kappmenu",
+                                               "org.ayatana.AppMenu.Registrar" };
+#endif
 
 static bool is_true(const char *value)
 {
@@ -72,7 +83,17 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
-	// return true;
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+	for (int i = 0; i < 4; i++)
+	{
+		if (registrar_present[i])
+			return true;
+	}
+#ifdef GDK_WINDOWING_WAYLAND
+	if (org_kde_kwin_appmenu_manager != NULL)
+		return true;
+#endif
+#endif
 	GtkSettings *settings;
 	GParamSpec *pspec;
 	gboolean shell_shows_menubar;
@@ -86,7 +107,9 @@ G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 	pspec =
 	    g_object_class_find_property(G_OBJECT_GET_CLASS(settings), "gtk-shell-shows-menubar");
 
-	g_return_val_if_fail(G_IS_PARAM_SPEC(pspec), false);
+	if (pspec == NULL)
+		return false;
+
 	g_return_val_if_fail(pspec->value_type == G_TYPE_BOOLEAN, false);
 
 	g_object_get(settings, "gtk-shell-shows-menubar", &shell_shows_menubar, NULL);
@@ -115,15 +138,6 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 }
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-#include "platform.h"
-static uint watcher_ids[4] = { 0, 0, 0, 0 };
-static bool registrar_present[4] = { false, false, false, false };
-
-static const char *const REGISTRAR_NAMES[] = { "com.canonical.AppMenu.Registrar",
-                                               "org.kde.KAppMenu",
-                                               "org.kde.kappmenu",
-                                               "org.ayatana.AppMenu.Registrar" };
-
 static gboolean is_dbus_present(int index)
 {
 	GDBusConnection *connection;
@@ -183,15 +197,19 @@ G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 {
 	GtkSettings *settings = gtk_settings_get_default();
 
-	g_return_val_if_fail(GTK_IS_SETTINGS(settings), false);
+	if (settings == NULL)
+		return false;
+
+#ifdef GDK_WINDOWING_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
+		return true;
+#endif
 
 	GParamSpec *pspec =
 	    g_object_class_find_property(G_OBJECT_GET_CLASS(settings), "gtk-shell-shows-menubar");
 
-	g_return_val_if_fail(G_IS_PARAM_SPEC(pspec), false);
-	g_return_val_if_fail(pspec->value_type == G_TYPE_BOOLEAN, false);
-
-	g_object_set(settings, "gtk-shell-shows-menubar", shows, NULL);
+	if (pspec && pspec->value_type == G_TYPE_BOOLEAN)
+		g_object_set(settings, "gtk-shell-shows-menubar", shows, NULL);
 
 	return true;
 }

@@ -29,7 +29,7 @@
 
 G_MODULE_EXPORT void gtk_module_init(gint *argc, gchar ***argv)
 {
-	//if (gtk_module_should_run())
+	if (gtk_module_should_run())
 	{
 		watch_registrar_dbus();
 		// enable_debug();
