@@ -32,8 +32,8 @@ struct _WindowData
 	uint window_id;
 	GMenu *menu_model;
 	GSList *menus;
+	GSList *dbusmenu_servers;
 	GMenuModel *old_model;
-	// TODO: save org_kde_kwin_appmenu here, and remove UnityGtk* stuff
 	struct org_kde_kwin_appmenu *kde_appmenu;
 	GtkWidget *menu;
 };

@@ -115,7 +115,8 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 }
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND)
-static uint watcher_id = 0;
+static uint watcher_ids[4] = { 0, 0, 0, 0 };
+static int registrar_count = 0;
 
 static gboolean is_dbus_present()
 {
@@ -157,7 +158,10 @@ static gboolean is_dbus_present()
 	g_variant_get(names, "as", &iter);
 	while (g_variant_iter_loop(iter, "s", &name))
 	{
-		if (g_str_equal(name, "com.canonical.AppMenu.Registrar"))
+		if (g_str_equal(name, "com.canonical.AppMenu.Registrar") ||
+		    g_str_equal(name, "org.kde.KAppMenu") ||
+		    g_str_equal(name, "org.kde.kappmenu") ||
+		    g_str_equal(name, "org.ayatana.AppMenu.Registrar"))
 		{
 			is_present = true;
 			break;
@@ -166,11 +170,12 @@ static gboolean is_dbus_present()
 	g_variant_iter_free(iter);
 	g_variant_unref(names);
 	g_variant_unref(ret);
+	g_object_unref(connection);
 
 	return is_present;
 }
 
-static bool set_gtk_shell_shows_menubar(bool shows)
+G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 {
 	GtkSettings *settings = gtk_settings_get_default();
 
@@ -192,6 +197,7 @@ static void on_name_appeared(GDBusConnection *connection, const char *name, cons
 {
 	g_debug("Name %s on the session bus is owned by %s\n", name, name_owner);
 
+	registrar_count++;
 	set_gtk_shell_shows_menubar(true);
 }
 
@@ -199,24 +205,53 @@ static void on_name_vanished(GDBusConnection *connection, const char *name, gpoi
 {
 	g_debug("Name %s does not exist on the session bus\n", name);
 
-	set_gtk_shell_shows_menubar(false);
+	registrar_count--;
+	if (registrar_count <= 0)
+	{
+		registrar_count = 0;
+		set_gtk_shell_shows_menubar(false);
+	}
 }
 #endif
 
 G_GNUC_INTERNAL void watch_registrar_dbus()
 {
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND)
-	set_gtk_shell_shows_menubar(is_dbus_present());
+	bool present = is_dbus_present();
+	set_gtk_shell_shows_menubar(present);
+	if (present)
+		registrar_count = 1;
 
-	if (watcher_id == 0)
+	if (watcher_ids[0] == 0)
 	{
-		watcher_id = g_bus_watch_name(G_BUS_TYPE_SESSION,
-		                              "com.canonical.AppMenu.Registrar",
-		                              G_BUS_NAME_WATCHER_FLAGS_NONE,
-		                              on_name_appeared,
-		                              on_name_vanished,
-		                              NULL,
-		                              NULL);
+		watcher_ids[0] = g_bus_watch_name(G_BUS_TYPE_SESSION,
+		                                  "com.canonical.AppMenu.Registrar",
+		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
+		                                  on_name_appeared,
+		                                  on_name_vanished,
+		                                  NULL,
+		                                  NULL);
+		watcher_ids[1] = g_bus_watch_name(G_BUS_TYPE_SESSION,
+		                                  "org.kde.KAppMenu",
+		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
+		                                  on_name_appeared,
+		                                  on_name_vanished,
+		                                  NULL,
+		                                  NULL);
+		watcher_ids[2] = g_bus_watch_name(G_BUS_TYPE_SESSION,
+		                                  "org.kde.kappmenu",
+		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
+		                                  on_name_appeared,
+		                                  on_name_vanished,
+		                                  NULL,
+		                                  NULL);
+		watcher_ids[3] = g_bus_watch_name(G_BUS_TYPE_SESSION,
+		                                  "org.ayatana.AppMenu.Registrar",
+		                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
+		                                  on_name_appeared,
+		                                  on_name_vanished,
+		                                  NULL,
+		                                  NULL);
 	}
 #endif
 }

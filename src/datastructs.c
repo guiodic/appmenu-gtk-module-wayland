@@ -48,20 +48,6 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 
 	if (window_data != NULL)
 	{
-		GDBusConnection *session = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-
-		// if (window_data->action_group_export_id)
-		// 	g_dbus_connection_unexport_action_group(session,
-		// 	                                        window_data
-		// 	                                            ->action_group_export_id);
-
-		// if (window_data->menu_model_export_id)
-		// 	g_dbus_connection_unexport_menu_model(session,
-		// 	                                      window_data->menu_model_export_id);
-
-		// if (window_data->action_group != NULL)
-		// 	g_object_unref(window_data->action_group);
-
 		if (window_data->menu_model != NULL)
 			g_object_unref(window_data->menu_model);
 
@@ -70,6 +56,12 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 
 		if (window_data->menus != NULL)
 			g_slist_free_full(window_data->menus, g_object_unref);
+
+		if (window_data->dbusmenu_servers != NULL)
+			g_slist_free_full(window_data->dbusmenu_servers, g_object_unref);
+
+		if (window_data->kde_appmenu != NULL)
+			release_appmenu(window_data->kde_appmenu);
 
 		g_slice_free(WindowData, window_data);
 	}
@@ -149,12 +141,12 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 	WindowData *window_data = NULL;
 
 	g_return_val_if_fail(GTK_IS_WINDOW(window), NULL);
-	g_print("gtk_window_get_window_data: GTK_IS_WINDOW\n");
+	g_debug("gtk_window_get_window_data: GTK_IS_WINDOW\n");
 
 #if (defined(GDK_WINDOWING_WAYLAND))
 	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
 	{
-		g_print("gtk_window_get_window_data: GDK_IS_WAYLAND_DISPLAY\n");
+		g_debug("gtk_window_get_window_data: GDK_IS_WAYLAND_DISPLAY\n");
 		window_data = gtk_wayland_window_get_window_data(window);
 	}
 #endif
@@ -162,7 +154,7 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 #if GTK_MAJOR_VERSION == 3
 	if (GDK_IS_X11_DISPLAY(gdk_display_get_default()))
 	{
-		g_print("GDK_IS_X11_DISPLAY\n");
+		g_debug("GDK_IS_X11_DISPLAY\n");
 #endif
 		window_data = gtk_x11_window_get_window_data(window);
 #endif
@@ -172,7 +164,7 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 
 G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
 {
-	g_print("gtk_window_disconnect_menu_shell\n");
+	g_debug("gtk_window_disconnect_menu_shell\n");
 	WindowData *window_data;
 	MenuShellData *menu_shell_data;
 
@@ -215,7 +207,7 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 
 G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
 {
-	g_print("============== gtk_window_connect_menu_shell\n");
+	g_debug("============== gtk_window_connect_menu_shell\n");
 	MenuShellData *menu_shell_data;
 
 	g_return_if_fail(GTK_IS_WINDOW(window));
@@ -242,24 +234,38 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 
 			if (iter == NULL)
 			{
-				// UnityGtkMenuShell *shell = unity_gtk_menu_shell_new(menu_shell);
-
-				// unity_gtk_action_group_connect_shell(window_data->action_group,
-				//                                      shell);
-
-				// g_menu_append_section(window_data->menu_model,
-				//                       NULL,
-				//                       G_MENU_MODEL(shell));
-
-				window_data->menus = g_slist_append(window_data->menus, menu_shell);
+				g_debug("gtk_window_connect_menu_shell: connecting new menu shell\n");
+				window_data->menus = g_slist_append(window_data->menus, g_object_ref(menu_shell));
 
 				DbusmenuMenuitem *item = dbusmenu_gtk_parse_menu_structure(GTK_WIDGET(menu_shell));
+				if (item == NULL)
+				{
+					g_debug("gtk_window_connect_menu_shell: failed to parse menu structure\n");
+				}
 				gchar *path = g_strdup_printf("/MenuBar/%d", window_data->window_id);
 				DbusmenuServer *srv = dbusmenu_server_new(path);
 				dbusmenu_server_set_root(srv, item);
+				g_object_unref(item);
+
+				window_data->dbusmenu_servers = g_slist_append(window_data->dbusmenu_servers, srv);
+
 				GDBusConnection* connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-				char* unique_bus_name = g_dbus_connection_get_unique_name(connection);
-				appmenu_set_address(gtk_widget_get_window(GTK_WIDGET(window)), unique_bus_name, path);
+				if (connection != NULL)
+				{
+					const char* unique_bus_name = g_dbus_connection_get_unique_name(connection);
+
+					if (window_data->kde_appmenu != NULL)
+						release_appmenu(window_data->kde_appmenu);
+
+					window_data->kde_appmenu = appmenu_set_address(gtk_widget_get_window(GTK_WIDGET(window)), (char *)unique_bus_name, path);
+					g_object_unref(connection);
+				}
+				else
+				{
+					g_debug("gtk_window_connect_menu_shell: failed to get session bus\n");
+				}
+
+				g_free(path);
 			}
 		}
 
