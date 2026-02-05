@@ -63,6 +63,8 @@ const char *unity_gtk_menu_item_get_label(UnityGtkMenuItem *item) G_GNUC_INTERNA
 
 GIcon *unity_gtk_menu_item_get_icon(UnityGtkMenuItem *item) G_GNUC_INTERNAL;
 
+GIcon *gtk_menu_item_get_icon(GtkMenuItem *menu_item) G_GNUC_INTERNAL;
+
 gboolean unity_gtk_menu_item_is_visible(UnityGtkMenuItem *item) G_GNUC_INTERNAL;
 
 gboolean unity_gtk_menu_item_is_sensitive(UnityGtkMenuItem *item) G_GNUC_INTERNAL;

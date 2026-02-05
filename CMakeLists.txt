@@ -11,6 +11,7 @@ pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 set(CMAKE_C_STANDARD 11)
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib")
 set(GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wayland/generated")
 
 add_library(appmenu-gtk-module-wayland  SHARED
@@ -21,9 +22,14 @@ add_library(appmenu-gtk-module-wayland  SHARED
     "${SRC_DIR}/blacklist.c"
     "${SRC_DIR}/platform.c"
     "${GENERATED_DIR}/appmenu.c"
+    "${LIB_DIR}/unity-gtk-menu-item.c"
+    "${LIB_DIR}/unity-gtk-menu-shell.c"
+    "${LIB_DIR}/unity-gtk-action-group.c"
+    "${LIB_DIR}/unity-gtk-action.c"
+    "${LIB_DIR}/unity-gtk-menu-section.c"
 )
 
-target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}")
+target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
 target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT)
 
 option(BUILD_TESTS "Build test applications" OFF)
