@@ -142,9 +142,10 @@ G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window)
 {
 	WindowData *window_data;
 
-	g_return_val_if_fail(GTK_IS_WINDOW(window), NULL);
+	if (window == NULL || !GTK_IS_WINDOW(window))
+		return NULL;
 
-	window_data = g_object_get_qdata(G_OBJECT(window), window_data_quark());
+	window_data = g_object_get_qdata(G_OBJECT(window), appmenu_gtk_wayland_window_data_quark());
 
 	if (window_data == NULL)
 	{
@@ -207,7 +208,7 @@ G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window)
 			                                   object_path);
 
 		g_object_set_qdata_full(G_OBJECT(window),
-		                        window_data_quark(),
+		                        appmenu_gtk_wayland_window_data_quark(),
 		                        window_data,
 		                        window_data_free);
 
@@ -305,7 +306,11 @@ struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow* gdk_win, const char*
 
 		struct org_kde_kwin_appmenu *appmenu = org_kde_kwin_appmenu_manager_create(org_kde_kwin_appmenu_manager, wl_surface);
 		org_kde_kwin_appmenu_set_address(appmenu, unique_bus_name, menubar_object_path);
-		wl_display_flush(gdk_wayland_display_get_wl_display(gdk_display_get_default()));
+
+		GdkDisplay *display = gdk_display_get_default();
+		if (display != NULL)
+			wl_display_flush(gdk_wayland_display_get_wl_display(display));
+
 		return appmenu;
 	}
 	else
@@ -334,9 +339,10 @@ G_GNUC_INTERNAL WindowData *gtk_wayland_window_get_window_data(GtkWindow *window
 	}
 	WindowData *window_data;
 
-	g_return_val_if_fail(GTK_IS_WINDOW(window), NULL);
+	if (window == NULL || !GTK_IS_WINDOW(window))
+		return NULL;
 
-	window_data = g_object_get_qdata(G_OBJECT(window), window_data_quark());
+	window_data = g_object_get_qdata(G_OBJECT(window), appmenu_gtk_wayland_window_data_quark());
 	if (window_data == NULL)
 	{
 		g_debug("window_data NOT cached");
@@ -347,7 +353,7 @@ G_GNUC_INTERNAL WindowData *gtk_wayland_window_get_window_data(GtkWindow *window
 		window_data->window_id  = window_id++;
 
 		g_object_set_qdata_full(G_OBJECT(window),
-		                        window_data_quark(),
+		                        appmenu_gtk_wayland_window_data_quark(),
 		                        window_data,
 		                        window_data_free);
 	}

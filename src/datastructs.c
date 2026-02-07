@@ -35,11 +35,11 @@
 DbusmenuMenuitem *dbusmenu_gtk_parse_get_item(GtkWidget *widget);
 DbusmenuMenuitem *dbusmenu_gtk_parse_get_cached_item(GtkWidget *widget);
 
-G_GNUC_INTERNAL G_DEFINE_QUARK(window_data, window_data);
-G_DEFINE_BOXED_TYPE(WindowData, window_data, (GBoxedCopyFunc)window_data_copy,
+G_GNUC_INTERNAL G_DEFINE_QUARK(appmenu_gtk_wayland_window_data, appmenu_gtk_wayland_window_data);
+G_DEFINE_BOXED_TYPE(WindowData, appmenu_gtk_wayland_window_data, (GBoxedCopyFunc)window_data_copy,
                     (GBoxedFreeFunc)window_data_free);
-G_GNUC_INTERNAL G_DEFINE_QUARK(menu_shell_data, menu_shell_data);
-G_DEFINE_BOXED_TYPE(MenuShellData, menu_shell_data, (GBoxedCopyFunc)menu_shell_data_copy,
+G_GNUC_INTERNAL G_DEFINE_QUARK(appmenu_gtk_wayland_menu_shell_data, appmenu_gtk_wayland_menu_shell_data);
+G_DEFINE_BOXED_TYPE(MenuShellData, appmenu_gtk_wayland_menu_shell_data, (GBoxedCopyFunc)menu_shell_data_copy,
                     (GBoxedFreeFunc)menu_shell_data_free);
 
 G_GNUC_INTERNAL WindowData *window_data_new(void)
@@ -60,10 +60,18 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 			g_object_unref(window_data->old_model);
 
 		if (window_data->menus != NULL)
-			g_slist_free_full(window_data->menus, g_object_unref);
+		{
+			GSList *menus = window_data->menus;
+			window_data->menus = NULL;
+			g_slist_free_full(menus, g_object_unref);
+		}
 
 		if (window_data->dbusmenu_servers != NULL)
-			g_slist_free_full(window_data->dbusmenu_servers, g_object_unref);
+		{
+			GSList *servers = window_data->dbusmenu_servers;
+			window_data->dbusmenu_servers = NULL;
+			g_slist_free_full(servers, g_object_unref);
+		}
 
 		if (window_data->kde_appmenu != NULL)
 			release_appmenu(window_data->kde_appmenu);
@@ -99,7 +107,11 @@ G_GNUC_INTERNAL void menu_shell_data_free(gpointer data)
 	if (menu_shell_data != NULL)
 	{
 		if (menu_shell_data->server != NULL)
-			g_object_unref(menu_shell_data->server);
+		{
+			DbusmenuServer *server = menu_shell_data->server;
+			menu_shell_data->server = NULL;
+			g_object_unref(server);
+		}
 		g_slice_free(MenuShellData, menu_shell_data);
 	}
 }
@@ -125,16 +137,17 @@ G_GNUC_INTERNAL MenuShellData *gtk_menu_shell_get_menu_shell_data(GtkMenuShell *
 {
 	MenuShellData *menu_shell_data;
 
-	g_return_val_if_fail(GTK_IS_MENU_SHELL(menu_shell), NULL);
+	if (menu_shell == NULL || !GTK_IS_MENU_SHELL(menu_shell))
+		return NULL;
 
-	menu_shell_data = g_object_get_qdata(G_OBJECT(menu_shell), menu_shell_data_quark());
+	menu_shell_data = g_object_get_qdata(G_OBJECT(menu_shell), appmenu_gtk_wayland_menu_shell_data_quark());
 
 	if (menu_shell_data == NULL)
 	{
 		menu_shell_data = menu_shell_data_new();
 
 		g_object_set_qdata_full(G_OBJECT(menu_shell),
-		                        menu_shell_data_quark(),
+		                        appmenu_gtk_wayland_menu_shell_data_quark(),
 		                        menu_shell_data,
 		                        menu_shell_data_free);
 	}
@@ -142,15 +155,31 @@ G_GNUC_INTERNAL MenuShellData *gtk_menu_shell_get_menu_shell_data(GtkMenuShell *
 	return menu_shell_data;
 }
 
+G_GNUC_INTERNAL WindowData *gtk_window_peek_window_data(GtkWindow *window)
+{
+	if (window == NULL || !GTK_IS_WINDOW(window))
+		return NULL;
+
+	return g_object_get_qdata(G_OBJECT(window), appmenu_gtk_wayland_window_data_quark());
+}
+
 G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 {
 	WindowData *window_data = NULL;
+	GdkDisplay *display;
 
-	g_return_val_if_fail(GTK_IS_WINDOW(window), NULL);
+	if (window == NULL || !GTK_IS_WINDOW(window))
+		return NULL;
+
 	g_debug("gtk_window_get_window_data: GTK_IS_WINDOW");
 
+	display = gdk_display_get_default();
+
+	if (display == NULL)
+		return NULL;
+
 #if (defined(GDK_WINDOWING_WAYLAND))
-	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
+	if (GDK_IS_WAYLAND_DISPLAY(display))
 	{
 		g_debug("gtk_window_get_window_data: GDK_IS_WAYLAND_DISPLAY");
 		window_data = gtk_wayland_window_get_window_data(window);
@@ -158,7 +187,7 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 #endif
 #if (defined(GDK_WINDOWING_X11))
 #if GTK_MAJOR_VERSION == 3
-	if (GDK_IS_X11_DISPLAY(gdk_display_get_default()))
+	if (GDK_IS_X11_DISPLAY(display))
 #endif
 	{
 		window_data = gtk_x11_window_get_window_data(window);
@@ -173,21 +202,27 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 	WindowData *window_data;
 	MenuShellData *menu_shell_data;
 
-	g_return_if_fail(GTK_IS_WINDOW(window));
-	g_return_if_fail(GTK_IS_MENU_SHELL(menu_shell));
+	if (window == NULL || !GTK_IS_WINDOW(window))
+		return;
+
+	if (menu_shell == NULL || !GTK_IS_MENU_SHELL(menu_shell))
+		return;
 
 	menu_shell_data = gtk_menu_shell_get_menu_shell_data(menu_shell);
 
+	if (menu_shell_data == NULL)
+		return;
+
 	g_warn_if_fail(window == menu_shell_data->window);
 
-	window_data = gtk_window_get_window_data(menu_shell_data->window);
+	window_data = gtk_window_peek_window_data(menu_shell_data->window);
 
 	if (window_data != NULL)
 	{
 		GSList *iter;
 
 		for (iter = window_data->menus; iter != NULL; iter = g_slist_next(iter))
-			if (GTK_MENU_SHELL(iter->data) == menu_shell)
+			if (iter->data == menu_shell)
 				break;
 
 		if (iter != NULL)
@@ -372,10 +407,16 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 	g_debug("============== gtk_window_connect_menu_shell");
 	MenuShellData *menu_shell_data;
 
-	g_return_if_fail(GTK_IS_WINDOW(window));
-	g_return_if_fail(GTK_IS_MENU_SHELL(menu_shell));
+	if (window == NULL || !GTK_IS_WINDOW(window))
+		return;
+
+	if (menu_shell == NULL || !GTK_IS_MENU_SHELL(menu_shell))
+		return;
 
 	menu_shell_data = gtk_menu_shell_get_menu_shell_data(menu_shell);
+
+	if (menu_shell_data == NULL)
+		return;
 
 	if (window != menu_shell_data->window)
 	{
@@ -391,7 +432,7 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 			GSList *iter;
 
 			for (iter = window_data->menus; iter != NULL; iter = g_slist_next(iter))
-				if (GTK_MENU_SHELL(iter->data) == menu_shell)
+				if (iter->data == menu_shell)
 					break;
 
 			if (iter == NULL)

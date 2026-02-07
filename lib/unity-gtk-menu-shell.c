@@ -34,7 +34,7 @@
 #include "unity-gtk-menu-section-private.h"
 #include "unity-gtk-menu-shell-private.h"
 
-G_DEFINE_QUARK(menu_shell, menu_shell);
+G_DEFINE_QUARK(appmenu_gtk_wayland_menu_shell, appmenu_gtk_wayland_menu_shell);
 
 G_DEFINE_TYPE(UnityGtkMenuShell, unity_gtk_menu_shell, G_TYPE_MENU_MODEL);
 
@@ -819,14 +819,14 @@ static void unity_gtk_menu_shell_set_menu_shell(UnityGtkMenuShell *shell, GtkMen
 		}
 
 		if (shell->menu_shell != NULL)
-			g_object_steal_qdata(G_OBJECT(shell->menu_shell), menu_shell_quark());
+			g_object_steal_qdata(G_OBJECT(shell->menu_shell), appmenu_gtk_wayland_menu_shell_quark());
 
 		shell->menu_shell = menu_shell;
 
 		if (menu_shell != NULL)
 		{
 			g_object_set_qdata_full(G_OBJECT(menu_shell),
-			                        menu_shell_quark(),
+			                        appmenu_gtk_wayland_menu_shell_quark(),
 			                        shell,
 			                        (GDestroyNotify)
 			                            unity_gtk_menu_shell_clear_menu_shell);

@@ -57,9 +57,10 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 	bool should_run            = false;
 	static bool run_once       = true;
 #if GTK_MAJOR_VERSION >= 3
-	if (GDK_IS_X11_DISPLAY(gdk_display_get_default()))
+	GdkDisplay *display = gdk_display_get_default();
+	if (display != NULL && GDK_IS_X11_DISPLAY(display))
 		is_platform_supported = true;
-	else if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
+	else if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
 	{
 		is_platform_supported = true;
 	}
@@ -140,7 +141,8 @@ G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 		return false;
 
 #ifdef GDK_WINDOWING_WAYLAND
-	if (GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()))
+	GdkDisplay *display = gdk_display_get_default();
+	if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
 		return true;
 #endif
 
