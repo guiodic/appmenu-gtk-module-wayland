@@ -451,7 +451,7 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 					schedule_fix_icons(GTK_WIDGET(menu_shell));
 				}
 
-				gchar *path = g_strdup_printf("/MenuBar/%d/%p", window_data->window_id, menu_shell);
+				gchar *path = g_strdup_printf("/MenuBar/%u/%p", window_data->window_id, menu_shell);
 				DbusmenuServer *srv = dbusmenu_server_new(path);
 				dbusmenu_server_set_root(srv, item);
 				if (item != NULL)

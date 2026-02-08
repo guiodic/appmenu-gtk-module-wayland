@@ -27,6 +27,7 @@
 #include "datastructs-private.h"
 #include "datastructs.h"
 #include "support.h"
+#include <string.h>
 
 #ifdef GDK_WINDOWING_X11
 G_GNUC_INTERNAL char *gtk_widget_get_x11_property_string(GtkWidget *widget, const char *name)
@@ -133,7 +134,7 @@ G_GNUC_INTERNAL void gtk_widget_set_x11_property_string(GtkWidget *widget, const
 		                8,
 		                PropModeReplace,
 		                (unsigned char *)value,
-		                g_utf8_strlen(value, -1));
+		                strlen(value));
 	else
 		XDeleteProperty(xdisplay, xwindow, property);
 }
@@ -155,7 +156,7 @@ G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window)
 		if (session == NULL)
 			return NULL;
 
-		char *object_path        = g_strdup_printf(OBJECT_PATH "/%d", window_id);
+		char *object_path        = g_strdup_printf(OBJECT_PATH "/%u", window_id);
 		char *old_unique_bus_name =
 		    gtk_widget_get_x11_property_string(GTK_WIDGET(window), _GTK_UNIQUE_BUS_NAME);
 		char *old_unity_object_path =
