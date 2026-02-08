@@ -274,6 +274,9 @@ static void hijack_window_class_vtable(GType type)
 	guint n;
 	guint i;
 
+	if (widget_class == NULL)
+		return;
+
 	if (widget_class->realize == pre_hijacked_window_realize)
 		widget_class->realize = hijacked_window_realize;
 
@@ -298,40 +301,52 @@ G_GNUC_INTERNAL void store_pre_hijacked()
 {
 	GtkWidgetClass *widget_class;
 	/* store the base GtkWidget size_allocate vfunc */
-	widget_class                      = g_type_class_ref(GTK_TYPE_WIDGET);
-	pre_hijacked_widget_size_allocate = widget_class->size_allocate;
-	g_type_class_unref(widget_class);
+	widget_class = g_type_class_ref(GTK_TYPE_WIDGET);
+	if (widget_class != NULL)
+	{
+		pre_hijacked_widget_size_allocate = widget_class->size_allocate;
+		g_type_class_unref(widget_class);
+	}
 
 #if GTK_MAJOR_VERSION == 3
 	/* store the base GtkApplicationWindow realize vfunc */
-	widget_class                            = g_type_class_ref(GTK_TYPE_APPLICATION_WINDOW);
-	pre_hijacked_application_window_realize = widget_class->realize;
-	g_type_class_unref(widget_class);
+	widget_class = g_type_class_ref(GTK_TYPE_APPLICATION_WINDOW);
+	if (widget_class != NULL)
+	{
+		pre_hijacked_application_window_realize = widget_class->realize;
+		g_type_class_unref(widget_class);
+	}
 #endif
 
 	/* intercept window realize vcalls on GtkWindow */
-	widget_class                  = g_type_class_ref(GTK_TYPE_WINDOW);
-	pre_hijacked_window_realize   = widget_class->realize;
-	pre_hijacked_window_unrealize = widget_class->unrealize;
-	hijack_window_class_vtable(GTK_TYPE_WINDOW);
-	g_type_class_unref(widget_class);
+	widget_class = g_type_class_ref(GTK_TYPE_WINDOW);
+	if (widget_class != NULL)
+	{
+		pre_hijacked_window_realize   = widget_class->realize;
+		pre_hijacked_window_unrealize = widget_class->unrealize;
+		hijack_window_class_vtable(GTK_TYPE_WINDOW);
+		g_type_class_unref(widget_class);
+	}
 
 	/* intercept size request and allocate vcalls on GtkMenuBar (for hiding) */
-	widget_class                        = g_type_class_ref(GTK_TYPE_MENU_BAR);
-	pre_hijacked_menu_bar_realize       = widget_class->realize;
-	pre_hijacked_menu_bar_unrealize     = widget_class->unrealize;
-	pre_hijacked_menu_bar_size_allocate = widget_class->size_allocate;
+	widget_class = g_type_class_ref(GTK_TYPE_MENU_BAR);
+	if (widget_class != NULL)
+	{
+		pre_hijacked_menu_bar_realize       = widget_class->realize;
+		pre_hijacked_menu_bar_unrealize     = widget_class->unrealize;
+		pre_hijacked_menu_bar_size_allocate = widget_class->size_allocate;
 #if GTK_MAJOR_VERSION == 2
-	pre_hijacked_menu_bar_size_request = widget_class->size_request;
+		pre_hijacked_menu_bar_size_request = widget_class->size_request;
 #elif GTK_MAJOR_VERSION == 3
-	pre_hijacked_menu_bar_get_preferred_width  = widget_class->get_preferred_width;
-	pre_hijacked_menu_bar_get_preferred_height = widget_class->get_preferred_height;
-	pre_hijacked_menu_bar_get_preferred_width_for_height =
-	    widget_class->get_preferred_width_for_height;
-	pre_hijacked_menu_bar_get_preferred_height_for_width =
-	    widget_class->get_preferred_height_for_width;
+		pre_hijacked_menu_bar_get_preferred_width  = widget_class->get_preferred_width;
+		pre_hijacked_menu_bar_get_preferred_height = widget_class->get_preferred_height;
+		pre_hijacked_menu_bar_get_preferred_width_for_height =
+		    widget_class->get_preferred_width_for_height;
+		pre_hijacked_menu_bar_get_preferred_height_for_width =
+		    widget_class->get_preferred_height_for_width;
 #endif
-	g_type_class_unref(widget_class);
+		g_type_class_unref(widget_class);
+	}
 }
 G_GNUC_INTERNAL void hijack_menu_bar_class_vtable(GType type)
 {
@@ -339,6 +354,9 @@ G_GNUC_INTERNAL void hijack_menu_bar_class_vtable(GType type)
 	GType *children;
 	guint n;
 	guint i;
+
+	if (widget_class == NULL)
+		return;
 
 	/* This fixes lp:1113008. */
 	widget_class->hierarchy_changed = NULL;
