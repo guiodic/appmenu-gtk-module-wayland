@@ -320,6 +320,28 @@ static GIcon *gtk_image_get_icon(GtkImage *image)
 	break;
 #endif
 
+	case GTK_IMAGE_SURFACE:
+	{
+		cairo_surface_t *surface = NULL;
+
+		g_object_get(G_OBJECT(image), "surface", &surface, NULL);
+
+		if (surface != NULL)
+		{
+			GdkPixbuf *pixbuf = gdk_pixbuf_get_from_surface(surface,
+				0,
+				0,
+				cairo_image_surface_get_width(surface),
+				cairo_image_surface_get_height(surface));
+			cairo_surface_destroy(surface);
+
+			if (pixbuf != NULL)
+				icon = G_ICON(pixbuf);
+		}
+	}
+
+	break;
+
 	default:
 		break;
 	}
