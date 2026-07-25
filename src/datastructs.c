@@ -28,6 +28,7 @@
 
 #include <libdbusmenu-glib/server.h>
 #include <libdbusmenu-glib/menuitem.h>
+#include <libdbusmenu-gtk/menuitem.h>
 #include <libdbusmenu-gtk/parser.h>
 #include "unity-gtk-menu-item-private.h"
 
@@ -328,26 +329,11 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 						if (pixbuf)
 						{
 							g_debug("APPMENU-GTK-WAYLAND: fixing icon-data for %p (new_pixbuf: %d)", widget, new_pixbuf);
-							GVariant *pixels = g_variant_new_from_data(
-							    G_VARIANT_TYPE("ay"),
-							    gdk_pixbuf_get_pixels(pixbuf),
-							    (gsize)gdk_pixbuf_get_height(pixbuf) * gdk_pixbuf_get_rowstride(pixbuf),
-							    TRUE,
-							    (GDestroyNotify)g_object_unref,
-							    g_object_ref(pixbuf));
-							GVariant *variant = g_variant_new(
-							    "(iiib@ay)",
-							    gdk_pixbuf_get_width(pixbuf),
-							    gdk_pixbuf_get_height(pixbuf),
-							    gdk_pixbuf_get_rowstride(pixbuf),
-							    gdk_pixbuf_get_has_alpha(pixbuf),
-							    pixels);
-
-							dbusmenu_menuitem_property_set_variant(
-							    item,
-							    "icon-data",
-							    variant);
-							dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
+							if (dbusmenu_menuitem_property_set_image(item, "icon-data", pixbuf))
+								dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
+							else
+								g_debug("APPMENU-GTK-WAYLAND: failed to serialize icon-data for %p",
+								        widget);
 							if (new_pixbuf) {
 								g_object_unref(pixbuf);
 							}
