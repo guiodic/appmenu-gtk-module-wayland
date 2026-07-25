@@ -329,8 +329,11 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 						if (pixbuf)
 						{
 							g_debug("APPMENU-GTK-WAYLAND: fixing icon-data for %p (new_pixbuf: %d)", widget, new_pixbuf);
-							dbusmenu_menuitem_property_set_image(item, "icon-data", pixbuf);
-							dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
+							if (dbusmenu_menuitem_property_set_image(item, "icon-data", pixbuf))
+								dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
+							else
+								g_debug("APPMENU-GTK-WAYLAND: failed to serialize icon-data for %p",
+								        widget);
 							if (new_pixbuf) {
 								g_object_unref(pixbuf);
 							}
