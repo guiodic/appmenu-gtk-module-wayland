@@ -55,6 +55,21 @@ static void g_object_get_nth_object(GObject *object, gpointer data)
 	}
 }
 
+GtkAccelLabel *gtk_menu_item_get_nth_accel_label(GtkMenuItem *menu_item, guint index)
+{
+	UnityGtkSearch search;
+
+	g_return_val_if_fail(GTK_IS_MENU_ITEM(menu_item), NULL);
+
+	search.type = GTK_TYPE_ACCEL_LABEL;
+	search.index = index;
+	search.object = NULL;
+
+	g_object_get_nth_object(G_OBJECT(menu_item), &search);
+
+	return search.object != NULL ? GTK_ACCEL_LABEL(search.object) : NULL;
+}
+
 GtkLabel *gtk_menu_item_get_nth_label(GtkMenuItem *menu_item, guint index)
 {
 	UnityGtkSearch search;

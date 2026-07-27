@@ -249,15 +249,18 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 	}
 }
 
-static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data);
+static void fix_dbusmenu(GtkWidget *widget, gpointer user_data);
+static void fix_dbusmenu_accelerator(GtkMenuItem *menu_item, DbusmenuMenuitem* item);
+static void fix_dbusmenu_checkbox(GtkMenuItem *menu_item, DbusmenuMenuitem* item);
+static void fix_dbusmenu_icon(GtkMenuItem *menu_item, DbusmenuMenuitem* item);
 
 static void on_menu_show(GtkWidget *widget, gpointer user_data)
 {
-	g_debug("APPMENU-GTK-WAYLAND: menu show, re-fixing icons for %p", widget);
-	fix_dbusmenu_icons(widget, NULL);
+	g_debug("APPMENU-GTK-WAYLAND: menu show, re-fixing icons/accelerators/checkboxs for %p", widget);
+	fix_dbusmenu(widget, NULL);
 }
 
-static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
+static void fix_dbusmenu(GtkWidget *widget, gpointer user_data)
 {
 	if (GTK_IS_MENU_ITEM(widget))
 	{
@@ -271,77 +274,10 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 
 		if (item != NULL)
 		{
-			const gchar *existing_name = dbusmenu_menuitem_property_get(item, "icon-name");
-			GVariant *existing_data = dbusmenu_menuitem_property_get_variant(item, "icon-data");
-
-			/* Only set the icon if it's not already set or is empty */
-			if ((existing_name == NULL || existing_name[0] == '\0') &&
-			    existing_data == NULL)
-			{
-				/* gtk_menu_item_get_icon returns a new reference (strongly reffed)
-				 * to ensure the icon remains valid during processing.
-				 */
-				GIcon *icon = gtk_menu_item_get_icon(GTK_MENU_ITEM(widget));
-				if (icon != NULL)
-				{
-					if (G_IS_THEMED_ICON(icon))
-					{
-						const gchar *const *names =
-						    g_themed_icon_get_names(G_THEMED_ICON(icon));
-						if (names != NULL && names[0] != NULL)
-						{
-							g_debug("APPMENU-GTK-WAYLAND: fixing icon-name: %s for %p",
-							        names[0], widget);
-							dbusmenu_menuitem_property_set(item,
-							                               "icon-name",
-							                               names[0]);
-							dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
-						}
-					}
-					else
-					{
-						GdkPixbuf *pixbuf = NULL;
-						gboolean new_pixbuf = FALSE;
-
-						if (GDK_IS_PIXBUF(icon)) {
-							pixbuf = GDK_PIXBUF(icon);
-						} else {
-							GError *error = NULL;
-							gint width = 16, height = 16;
-							gtk_icon_size_lookup(GTK_ICON_SIZE_MENU, &width, &height);
-							GdkScreen *screen = gtk_widget_get_screen(widget);
-							GtkIconTheme *icon_theme = screen ? gtk_icon_theme_get_for_screen(screen) : gtk_icon_theme_get_default();
-							G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-							GtkIconInfo *icon_info = gtk_icon_theme_lookup_by_gicon(icon_theme, icon, width, GTK_ICON_LOOKUP_FORCE_SIZE);
-							if (icon_info) {
-								pixbuf = gtk_icon_info_load_icon(icon_info, &error);
-								g_object_unref(icon_info);
-							}
-							G_GNUC_END_IGNORE_DEPRECATIONS
-
-							if (error) {
-								g_debug("APPMENU-GTK-WAYLAND: failed to load icon: %s", error->message);
-								g_error_free(error);
-							}
-							new_pixbuf = (pixbuf != NULL);
-						}
-
-						if (pixbuf)
-						{
-							g_debug("APPMENU-GTK-WAYLAND: fixing icon-data for %p (new_pixbuf: %d)", widget, new_pixbuf);
-							if (dbusmenu_menuitem_property_set_image(item, "icon-data", pixbuf))
-								dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
-							else
-								g_debug("APPMENU-GTK-WAYLAND: failed to serialize icon-data for %p",
-								        widget);
-							if (new_pixbuf) {
-								g_object_unref(pixbuf);
-							}
-						}
-					}
-					g_object_unref(icon);
-				}
-			}
+			GtkMenuItem* menu_item = GTK_MENU_ITEM(widget);
+			fix_dbusmenu_accelerator(menu_item, item);
+			fix_dbusmenu_checkbox(menu_item, item);
+			fix_dbusmenu_icon(menu_item, item);
 		}
 
 		GtkWidget *submenu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget));
@@ -352,13 +288,147 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 			{
 				g_signal_connect(submenu, "show", G_CALLBACK(on_menu_show), NULL);
 			}
-			fix_dbusmenu_icons(submenu, NULL);
+			fix_dbusmenu(submenu, NULL);
 		}
 	}
 
 	if (GTK_IS_CONTAINER(widget))
 	{
-		gtk_container_forall(GTK_CONTAINER(widget), (GtkCallback)fix_dbusmenu_icons, NULL);
+		gtk_container_forall(GTK_CONTAINER(widget), (GtkCallback)fix_dbusmenu, NULL);
+	}
+}
+
+static void fix_dbusmenu_accelerator(GtkMenuItem *menu_item, DbusmenuMenuitem *item)
+{
+	guint accel_key = 0;
+	GdkModifierType accel_mods = 0;
+
+	GtkAccelLabel* accel_label = gtk_menu_item_get_nth_accel_label(menu_item, 0);
+	if (GTK_IS_ACCEL_LABEL(accel_label))
+	{
+		gtk_accel_label_get_accel(accel_label, &accel_key, &accel_mods);
+	}
+
+	if (accel_key != 0)
+	{
+		dbusmenu_menuitem_property_set_shortcut(item, accel_key, accel_mods);
+	} else {
+		// NOTE: Gimp adds a GimpAccelLabel (whose parent class is GtkLabel) instead of using the GtkAccelLabel.
+		// To avoid depending on Gimp's source, look for a second label & grab the text from it if the type name matches.
+		// While hacky, it's the best way I could find; the action the label represents can be gotten
+		// but the accelerators inside it don't appear to have a getter.
+		GtkLabel* gimp_label = gtk_menu_item_get_nth_label(menu_item, 1);
+		if (gimp_label != NULL)
+		{
+			GType type = G_OBJECT_TYPE(G_OBJECT(gimp_label));
+			const gchar* accel_text = gtk_label_get_text(gimp_label);
+			if (g_strcmp0(g_type_name(type), "GimpAccelLabel") == 0 && accel_text != NULL && accel_text[0] != '\0') {
+				gchar **parts = g_strsplit(accel_text, "+", -1);
+				GVariantBuilder builder;
+				g_variant_builder_init(&builder, G_VARIANT_TYPE("aas"));
+				g_variant_builder_open(&builder, G_VARIANT_TYPE("as"));
+				for (gint i = 0; parts[i] != NULL; i++) {
+					g_variant_builder_add(&builder, "s", parts[i]);
+				}
+				g_variant_builder_close(&builder);
+				g_strfreev(parts);
+
+				GVariant *variant = g_variant_builder_end(&builder);
+				dbusmenu_menuitem_property_set_variant(item, DBUSMENU_MENUITEM_PROP_SHORTCUT, variant);
+			}
+		}
+	}
+}
+
+static void fix_dbusmenu_checkbox(GtkMenuItem *menu_item, DbusmenuMenuitem *item)
+{
+	// NOTE: Some applications use GtkModelMenuItem, which will incorrectly be determined to be a checkbox.
+	// This checks the accessibility role & removes the checkbox/radiobutton if it's not that type.
+	if (GTK_IS_CHECK_MENU_ITEM(menu_item))
+	{
+		AtkObject* accessibility = gtk_widget_get_accessible(GTK_WIDGET(menu_item));
+		if (accessibility != NULL)
+		{
+			AtkRole role = atk_object_get_role(accessibility);
+			if (!(role == ATK_ROLE_CHECK_MENU_ITEM || role == ATK_ROLE_RADIO_MENU_ITEM))
+				dbusmenu_menuitem_property_set(item, DBUSMENU_MENUITEM_PROP_TOGGLE_TYPE, "");
+		}
+	}
+}
+
+static void fix_dbusmenu_icon(GtkMenuItem *menu_item, DbusmenuMenuitem *item)
+{
+	const gchar *existing_name = dbusmenu_menuitem_property_get(item, "icon-name");
+	GVariant *existing_data = dbusmenu_menuitem_property_get_variant(item, "icon-data");
+
+	/* Only set the icon if it's not already set or is empty */
+	if ((existing_name == NULL || existing_name[0] == '\0') &&
+		existing_data == NULL)
+	{
+		GtkWidget* widget = GTK_WIDGET(menu_item);
+		/* gtk_menu_item_get_icon returns a new reference (strongly reffed)
+			* to ensure the icon remains valid during processing.
+			*/
+		GIcon *icon = gtk_menu_item_get_icon(menu_item);
+		if (icon != NULL)
+		{
+			if (G_IS_THEMED_ICON(icon))
+			{
+				const gchar *const *names =
+					g_themed_icon_get_names(G_THEMED_ICON(icon));
+				if (names != NULL && names[0] != NULL)
+				{
+					g_debug("APPMENU-GTK-WAYLAND: fixing icon-name: %s for %p",
+							names[0], widget);
+					dbusmenu_menuitem_property_set(item,
+													"icon-name",
+													names[0]);
+					dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
+				}
+			}
+			else
+			{
+				GdkPixbuf *pixbuf = NULL;
+				gboolean new_pixbuf = FALSE;
+
+				if (GDK_IS_PIXBUF(icon)) {
+					pixbuf = GDK_PIXBUF(icon);
+				} else {
+					GError *error = NULL;
+					gint width = 16, height = 16;
+					gtk_icon_size_lookup(GTK_ICON_SIZE_MENU, &width, &height);
+					GdkScreen *screen = gtk_widget_get_screen(widget);
+					GtkIconTheme *icon_theme = screen ? gtk_icon_theme_get_for_screen(screen) : gtk_icon_theme_get_default();
+					G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+					GtkIconInfo *icon_info = gtk_icon_theme_lookup_by_gicon(icon_theme, icon, width, GTK_ICON_LOOKUP_FORCE_SIZE);
+					if (icon_info) {
+						pixbuf = gtk_icon_info_load_icon(icon_info, &error);
+						g_object_unref(icon_info);
+					}
+					G_GNUC_END_IGNORE_DEPRECATIONS
+
+					if (error) {
+						g_debug("APPMENU-GTK-WAYLAND: failed to load icon: %s", error->message);
+						g_error_free(error);
+					}
+					new_pixbuf = (pixbuf != NULL);
+				}
+
+				if (pixbuf)
+				{
+					g_debug("APPMENU-GTK-WAYLAND: fixing icon-data for %p (new_pixbuf: %d)", widget, new_pixbuf);
+					if (dbusmenu_menuitem_property_set_image(item, "icon-data", pixbuf))
+						dbusmenu_menuitem_property_set_bool(item, "icon-visible", TRUE);
+					else
+						g_debug("APPMENU-GTK-WAYLAND: failed to serialize icon-data for %p",
+								widget);
+					if (new_pixbuf) {
+						g_object_unref(pixbuf);
+					}
+				}
+			}
+			g_object_unref(icon);
+		}
 	}
 }
 
@@ -367,25 +437,25 @@ typedef struct
 	GtkWidget *widget;
 } FixIconsData;
 
-static gboolean fix_icons_idle(gpointer data)
+static gboolean fix_idle(gpointer data)
 {
 	FixIconsData *fid = data;
 	if (fid->widget != NULL)
 	{
 		GtkWidget *widget = fid->widget;
 		g_object_remove_weak_pointer(G_OBJECT(widget), (gpointer *)&fid->widget);
-		fix_dbusmenu_icons(widget, NULL);
+		fix_dbusmenu(widget, NULL);
 	}
 	g_free(fid);
 	return G_SOURCE_REMOVE;
 }
 
-static void schedule_fix_icons(GtkWidget *widget)
+static void schedule_fix(GtkWidget *widget)
 {
 	FixIconsData *fid = g_new0(FixIconsData, 1);
 	fid->widget       = widget;
 	g_object_add_weak_pointer(G_OBJECT(widget), (gpointer *)&fid->widget);
-	g_idle_add(fix_icons_idle, fid);
+	g_idle_add(fix_idle, fid);
 }
 
 G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
@@ -433,8 +503,8 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 				}
 				else
 				{
-					fix_dbusmenu_icons(GTK_WIDGET(menu_shell), NULL);
-					schedule_fix_icons(GTK_WIDGET(menu_shell));
+					fix_dbusmenu(GTK_WIDGET(menu_shell), NULL);
+					schedule_fix(GTK_WIDGET(menu_shell));
 				}
 
 				gchar *path = g_strdup_printf("/MenuBar/%u/%p", window_data->window_id, menu_shell);
