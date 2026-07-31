@@ -33,7 +33,7 @@
 #include "unity-gtk-menu-item-private.h"
 
 /* libdbusmenu-gtk internal but exported functions */
-DbusmenuMenuitem *dbusmenu_gtk_parse_get_item(GtkWidget *widget);
+DbusmenuMenuitem *dbusmenu_gtk_parse_get_item(GtkWidget *widget) __attribute__((weak));
 DbusmenuMenuitem *dbusmenu_gtk_parse_get_cached_item(GtkWidget *widget);
 
 G_GNUC_INTERNAL G_DEFINE_QUARK(appmenu_gtk_wayland_window_data, appmenu_gtk_wayland_window_data);
@@ -266,11 +266,39 @@ static void fix_dbusmenu_icons(GtkWidget *widget, gpointer user_data)
 		/* Fallback to internal lookup functions if data is not found directly */
 		if (item == NULL)
 			item = dbusmenu_gtk_parse_get_cached_item(widget);
-		if (item == NULL)
+		if (item == NULL && dbusmenu_gtk_parse_get_item != NULL)
 			item = dbusmenu_gtk_parse_get_item(widget);
 
 		if (item != NULL)
 		{
+			const gchar *existing_desc = dbusmenu_menuitem_property_get(item, "accessible-desc");
+
+			if (existing_desc == NULL || existing_desc[0] == '\0')
+			{
+				gchar *tooltip = gtk_widget_get_tooltip_text(widget);
+				if (tooltip != NULL && tooltip[0] != '\0')
+				{
+					g_debug("APPMENU-GTK-WAYLAND: fixing accessible-desc from tooltip: %s for %p",
+					        tooltip, widget);
+					dbusmenu_menuitem_property_set(item, "accessible-desc", tooltip);
+				}
+				else
+				{
+					AtkObject *accessible = gtk_widget_get_accessible(widget);
+					if (accessible != NULL)
+					{
+						const gchar *desc = atk_object_get_description(accessible);
+						if (desc != NULL && desc[0] != '\0')
+						{
+							g_debug("APPMENU-GTK-WAYLAND: fixing accessible-desc from ATK: %s for %p",
+							        desc, widget);
+							dbusmenu_menuitem_property_set(item, "accessible-desc", desc);
+						}
+					}
+				}
+				g_free(tooltip);
+			}
+
 			const gchar *existing_name = dbusmenu_menuitem_property_get(item, "icon-name");
 			GVariant *existing_data = dbusmenu_menuitem_property_get_variant(item, "icon-data");
 

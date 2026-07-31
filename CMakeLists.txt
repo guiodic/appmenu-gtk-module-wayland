@@ -7,6 +7,7 @@ pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(DBUSMENU_GTK3 REQUIRED IMPORTED_TARGET dbusmenu-gtk3-0.4)
 pkg_check_modules(DBUSMENU_GLIB REQUIRED IMPORTED_TARGET dbusmenu-glib-0.4)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
 
 set(CMAKE_C_STANDARD 11)
 
@@ -39,4 +40,20 @@ if(BUILD_TESTS)
 
     add_executable(unity-gtk-menu-tester "${TEST_DIR}/demos/unity-gtk-menu-tester.c")
     target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
+
+    add_executable(test-accessible-desc
+        "${TEST_DIR}/demos/test-accessible-desc.c"
+        "${SRC_DIR}/datastructs.c"
+        "${SRC_DIR}/blacklist.c"
+        "${SRC_DIR}/platform.c"
+        "${SRC_DIR}/support.c"
+        "${GENERATED_DIR}/appmenu.c"
+        "${LIB_DIR}/unity-gtk-menu-item.c"
+        "${LIB_DIR}/unity-gtk-menu-shell.c"
+        "${LIB_DIR}/unity-gtk-action-group.c"
+        "${LIB_DIR}/unity-gtk-action.c"
+        "${LIB_DIR}/unity-gtk-menu-section.c"
+    )
+    target_include_directories(test-accessible-desc PRIVATE "${GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/lib" "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(test-accessible-desc PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
 endif()
