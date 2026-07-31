@@ -262,7 +262,6 @@ void appmenu_wl_init()
 {
 	if (wl_initialized)
 		return;
-	wl_initialized = TRUE;
 
 	GdkDisplay* disp = gdk_display_get_default();
 	if (!disp)
@@ -273,17 +272,30 @@ void appmenu_wl_init()
 	if (!GDK_IS_WAYLAND_DISPLAY(disp))
 	{
 		g_debug("not a wayland display");
+		wl_initialized = TRUE;
 		return;
 	}
 	g_debug("gdk_window_get_display %ld", (long)disp);
 	struct wl_display *wl_display = gdk_wayland_display_get_wl_display(disp);
+	if (!wl_display)
+	{
+		g_debug("no wl_display");
+		return;
+	}
 	g_debug("gdk_wayland_display_get_wl_display %ld", (long)wl_display);
 	struct wl_registry *wl_registry = wl_display_get_registry(wl_display);
+	if (!wl_registry)
+	{
+		g_debug("no wl_registry");
+		return;
+	}
 	g_debug("wl_display_get_registry %ld", (long)wl_registry);
 
 	wl_registry_add_listener(wl_registry, &wl_registry_listener, NULL);
 	wl_display_roundtrip(wl_display);
 	wl_registry_destroy(wl_registry);
+
+	wl_initialized = TRUE;
 
 	if (org_kde_kwin_appmenu_manager != NULL)
 	{

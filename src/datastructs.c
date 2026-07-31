@@ -457,10 +457,7 @@ static gboolean fix_idle(gpointer data)
 	{
 		GtkWidget *widget = fid->widget;
 		g_object_remove_weak_pointer(G_OBJECT(widget), (gpointer *)&fid->widget);
-		if (!gtk_widget_in_destruction(widget))
-		{
-			fix_dbusmenu(widget, NULL);
-		}
+		fix_dbusmenu(widget, NULL);
 	}
 	g_free(fid);
 	return G_SOURCE_REMOVE;
