@@ -22,6 +22,12 @@
  *          Lester Carballo Perez <lestcape@gmail.com>
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
+#include <stdlib.h>
+#include <unistd.h>
 #include <gdk/gdk.h>
 #include <gdk/gdkx.h>
 #include <gtk/gtk.h>
@@ -31,6 +37,19 @@
 #include "consts.h"
 #include "support.h"
 #include "platform.h"
+
+static const char *secure_getenv_wrapper(const char *name)
+{
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 17))
+	return secure_getenv(name);
+#else
+	#if defined(HAVE_ISSETUGID) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__Apple__)
+	if (issetugid())
+		return NULL;
+	#endif
+	return g_getenv(name);
+#endif
+}
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 static uint watcher_ids[4] = { 0, 0, 0, 0 };
@@ -51,7 +70,7 @@ static bool is_true(const char *value)
 
 G_GNUC_INTERNAL bool gtk_module_should_run()
 {
-	const char *proxy          = g_getenv("UBUNTU_MENUPROXY");
+	const char *proxy          = secure_getenv_wrapper("UBUNTU_MENUPROXY");
 	bool is_platform_supported = false;
 	bool is_program_supported  = false;
 	bool should_run            = false;
