@@ -262,6 +262,9 @@ static void on_menu_show(GtkWidget *widget, gpointer user_data)
 
 static void fix_dbusmenu(GtkWidget *widget, gpointer user_data)
 {
+	if (widget == NULL || gtk_widget_in_destruction(widget))
+		return;
+
 	if (GTK_IS_MENU_ITEM(widget))
 	{
 		DbusmenuMenuitem *item = g_object_get_data(G_OBJECT(widget), "dbusmenu-gtk-item");
@@ -454,7 +457,10 @@ static gboolean fix_idle(gpointer data)
 	{
 		GtkWidget *widget = fid->widget;
 		g_object_remove_weak_pointer(G_OBJECT(widget), (gpointer *)&fid->widget);
-		fix_dbusmenu(widget, NULL);
+		if (!gtk_widget_in_destruction(widget))
+		{
+			fix_dbusmenu(widget, NULL);
+		}
 	}
 	g_free(fid);
 	return G_SOURCE_REMOVE;
