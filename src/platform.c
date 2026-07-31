@@ -41,7 +41,7 @@ G_GNUC_INTERNAL char *gtk_widget_get_x11_property_string(GtkWidget *widget, cons
 	int actual_format;
 	unsigned long nitems;
 	unsigned long bytes_after;
-	unsigned char *prop;
+	unsigned char *prop = NULL;
 
 	g_return_val_if_fail(GTK_IS_WIDGET(widget), NULL);
 
@@ -73,17 +73,16 @@ G_GNUC_INTERNAL char *gtk_widget_get_x11_property_string(GtkWidget *widget, cons
 	                       &bytes_after,
 	                       &prop) == Success)
 	{
-		if (actual_format)
+		char *string = NULL;
+		if (actual_format == 8 && prop != NULL)
 		{
-			char *string = g_strdup((const char *)prop);
-
-			if (prop != NULL)
-				XFree(prop);
-
-			return string;
+			string = g_strdup((const char *)prop);
 		}
-		else
-			return NULL;
+
+		if (prop != NULL)
+			XFree(prop);
+
+		return string;
 	}
 
 	return NULL;
@@ -257,8 +256,13 @@ static const struct wl_registry_listener wl_registry_listener = {
 		.global_remove = registry_global_remove,
 };
 
+static gboolean wl_initialized = FALSE;
+
 void appmenu_wl_init()
 {
+	if (wl_initialized)
+		return;
+
 	GdkDisplay* disp = gdk_display_get_default();
 	if (!disp)
 	{
@@ -268,16 +272,30 @@ void appmenu_wl_init()
 	if (!GDK_IS_WAYLAND_DISPLAY(disp))
 	{
 		g_debug("not a wayland display");
+		wl_initialized = TRUE;
 		return;
 	}
 	g_debug("gdk_window_get_display %ld", (long)disp);
 	struct wl_display *wl_display = gdk_wayland_display_get_wl_display(disp);
+	if (!wl_display)
+	{
+		g_debug("no wl_display");
+		return;
+	}
 	g_debug("gdk_wayland_display_get_wl_display %ld", (long)wl_display);
 	struct wl_registry *wl_registry = wl_display_get_registry(wl_display);
+	if (!wl_registry)
+	{
+		g_debug("no wl_registry");
+		return;
+	}
 	g_debug("wl_display_get_registry %ld", (long)wl_registry);
 
 	wl_registry_add_listener(wl_registry, &wl_registry_listener, NULL);
 	wl_display_roundtrip(wl_display);
+	wl_registry_destroy(wl_registry);
+
+	wl_initialized = TRUE;
 
 	if (org_kde_kwin_appmenu_manager != NULL)
 	{
