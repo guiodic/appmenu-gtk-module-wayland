@@ -74,7 +74,7 @@ G_GNUC_INTERNAL char *gtk_widget_get_x11_property_string(GtkWidget *widget, cons
 	                       &prop) == Success)
 	{
 		char *string = NULL;
-		if (actual_format && prop != NULL)
+		if (actual_format == 8 && prop != NULL)
 		{
 			string = g_strdup((const char *)prop);
 		}
