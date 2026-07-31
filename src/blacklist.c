@@ -27,35 +27,46 @@
 #include "blacklist.h"
 #include "consts.h"
 
-static const char *const BLACKLIST[] = { "acroread",
-	                                 "emacs",
-	                                 "emacs23",
-	                                 "emacs23-lucid",
-	                                 "emacs24",
-	                                 "emacs24-lucid",
-	                                 "budgie-panel",
-	                                 "mate-panel",
-	                                 "mate-menu",
-	                                 "vala-panel",
-	                                 "wrapper-1.0",
-	                                 "wrapper-2.0",
-	                                 "indicator-applet",
-	                                 "mate-indicator-applet",
-	                                 "mate-indicator-applet-appmenu",
-	                                 "mate-indicator-applet-complete",
-	                                 "appmenu-mate",
-	                                 NULL };
+#include <stdlib.h>
+#include <string.h>
+
+/* BLACKLIST is sorted alphabetically to allow O(log N) binary search */
+static const char *const BLACKLIST[] = {
+	"acroread",
+	"appmenu-mate",
+	"budgie-panel",
+	"emacs",
+	"emacs23",
+	"emacs23-lucid",
+	"emacs24",
+	"emacs24-lucid",
+	"indicator-applet",
+	"mate-indicator-applet",
+	"mate-indicator-applet-appmenu",
+	"mate-indicator-applet-complete",
+	"mate-menu",
+	"mate-panel",
+	"vala-panel",
+	"wrapper-1.0",
+	"wrapper-2.0"
+};
+
+static int compare_strings(const void *key, const void *element)
+{
+	return strcmp(*(const char * const *)key, *(const char * const *)element);
+}
 
 G_GNUC_INTERNAL
 bool is_blacklisted(const char *name)
 {
-	guint i;
+	if (name == NULL)
+		return false;
 
-	for (i = 0; BLACKLIST[i] != NULL; i++)
-	{
-		if (g_strcmp0(name, BLACKLIST[i]) == 0)
-			return true;
-	}
-
-	return false;
+	const char *key = name;
+	const char *const *res = bsearch(&key,
+	                                 BLACKLIST,
+	                                 G_N_ELEMENTS(BLACKLIST),
+	                                 sizeof(char *),
+	                                 compare_strings);
+	return res != NULL;
 }
