@@ -356,6 +356,37 @@ static void fix_dbusmenu_checkbox(GtkMenuItem *menu_item, DbusmenuMenuitem *item
 	}
 }
 
+static GdkPixbuf *resolve_pixbuf_for_icon(GtkWidget *widget, GIcon *icon, gboolean *new_pixbuf)
+{
+	GdkPixbuf *pixbuf = NULL;
+	*new_pixbuf = FALSE;
+
+	if (GDK_IS_PIXBUF(icon)) {
+		pixbuf = GDK_PIXBUF(icon);
+	} else {
+		GError *error = NULL;
+		gint width = 16, height = 16;
+		gtk_icon_size_lookup(GTK_ICON_SIZE_MENU, &width, &height);
+		GdkScreen *screen = gtk_widget_get_screen(widget);
+		GtkIconTheme *icon_theme = screen ? gtk_icon_theme_get_for_screen(screen) : gtk_icon_theme_get_default();
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+		GtkIconInfo *icon_info = gtk_icon_theme_lookup_by_gicon(icon_theme, icon, width, GTK_ICON_LOOKUP_FORCE_SIZE);
+		if (icon_info) {
+			pixbuf = gtk_icon_info_load_icon(icon_info, &error);
+			g_object_unref(icon_info);
+		}
+		G_GNUC_END_IGNORE_DEPRECATIONS
+
+		if (error) {
+			g_debug("APPMENU-GTK-WAYLAND: failed to load icon: %s", error->message);
+			g_error_free(error);
+		}
+		*new_pixbuf = (pixbuf != NULL);
+	}
+
+	return pixbuf;
+}
+
 static void fix_dbusmenu_icon(GtkMenuItem *menu_item, DbusmenuMenuitem *item)
 {
 	const gchar *existing_name = dbusmenu_menuitem_property_get(item, "icon-name");
@@ -391,28 +422,7 @@ static void fix_dbusmenu_icon(GtkMenuItem *menu_item, DbusmenuMenuitem *item)
 				GdkPixbuf *pixbuf = NULL;
 				gboolean new_pixbuf = FALSE;
 
-				if (GDK_IS_PIXBUF(icon)) {
-					pixbuf = GDK_PIXBUF(icon);
-				} else {
-					GError *error = NULL;
-					gint width = 16, height = 16;
-					gtk_icon_size_lookup(GTK_ICON_SIZE_MENU, &width, &height);
-					GdkScreen *screen = gtk_widget_get_screen(widget);
-					GtkIconTheme *icon_theme = screen ? gtk_icon_theme_get_for_screen(screen) : gtk_icon_theme_get_default();
-					G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-					GtkIconInfo *icon_info = gtk_icon_theme_lookup_by_gicon(icon_theme, icon, width, GTK_ICON_LOOKUP_FORCE_SIZE);
-					if (icon_info) {
-						pixbuf = gtk_icon_info_load_icon(icon_info, &error);
-						g_object_unref(icon_info);
-					}
-					G_GNUC_END_IGNORE_DEPRECATIONS
-
-					if (error) {
-						g_debug("APPMENU-GTK-WAYLAND: failed to load icon: %s", error->message);
-						g_error_free(error);
-					}
-					new_pixbuf = (pixbuf != NULL);
-				}
+				pixbuf = resolve_pixbuf_for_icon(widget, icon, &new_pixbuf);
 
 				if (pixbuf)
 				{
