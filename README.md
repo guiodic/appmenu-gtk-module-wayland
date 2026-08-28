@@ -49,7 +49,7 @@ export UBUNTU_MENUPROXY
 Make the file executable
 
 ```console
-sudo chmod +x etc/profile.d/appmenu-gtk-module-wayland.sh
+sudo chmod +x /etc/profile.d/appmenu-gtk-module-wayland.sh
 ```
 
 ###
