@@ -302,6 +302,10 @@ static gboolean forward_menu_mnemonic(GtkWidget *widget, gboolean group_cycling,
 	WindowData *window_data = gtk_window_peek_window_data(shell_data->window);
 	if (window_data == NULL)
 		return FALSE;
+	/* The window advertises only its newest server to the global menu viewer. */
+	GSList *published = g_slist_last(window_data->dbusmenu_servers);
+	if (published == NULL || published->data != shell_data->server)
+		return FALSE;
 	GdkDisplay *display = gtk_widget_get_display(widget);
 	if (GDK_IS_WAYLAND_DISPLAY(display) && window_data->kde_appmenu == NULL)
 		return FALSE;

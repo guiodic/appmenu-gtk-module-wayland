@@ -235,8 +235,26 @@ static GtkWidget *append_bar(GtkWidget *box)
     return menubar;
 }
 
+static void assert_mnemonic_forwarded(GtkWidget *menubar, gboolean expected)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(menubar));
+    g_assert_nonnull(children);
+    GtkWidget *item = children->data;
+    DbusmenuMenuitem *exported = dbusmenu_gtk_parse_get_cached_item(item);
+    g_assert_nonnull(exported);
+    guint before = requests;
+    gulong handler = g_signal_connect(exported, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER,
+        G_CALLBACK(requested), NULL);
+    g_assert_cmpint(forward_menu_mnemonic(item, FALSE, NULL), ==, expected);
+    g_assert_cmpuint(requests - before, ==, expected ? 1 : 0);
+    g_signal_handler_disconnect(exported, handler);
+    g_list_free(children);
+}
+
 static void test_export_lifecycle(void)
 {
+    name("RequestName", "org.kde.kappmenuview");
+    g_object_set(gtk_widget_get_settings(bar), "gtk-shell-shows-menubar", TRUE, NULL);
     /* Install the real realize/unrealize hooks: no manual disconnect in this test. */
     store_pre_hijacked();
     hijack_menu_bar_class_vtable(GTK_TYPE_MENU_BAR);
@@ -248,15 +266,26 @@ static void test_export_lifecycle(void)
     gtk_widget_show_all(test_window);
     drain();
     assert_export(test_window, second);
+    assert_mnemonic_forwarded(first, FALSE);
+    assert_mnemonic_forwarded(second, TRUE);
+    /* A server retained by a bar is not enough if it is absent from the list. */
+    WindowData *window_data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+    GSList *saved = window_data->dbusmenu_servers;
+    window_data->dbusmenu_servers = NULL;
+    assert_mnemonic_forwarded(second, FALSE);
+    window_data->dbusmenu_servers = saved;
     /* Removing a non-published menu must preserve the newest export. */
     gtk_widget_destroy(first);
     assert_export(test_window, second);
     GtkWidget *replacement = append_bar(box);
     drain();
     assert_export(test_window, replacement);
+    assert_mnemonic_forwarded(second, FALSE);
+    assert_mnemonic_forwarded(replacement, TRUE);
     /* Removing the published menu restores its surviving predecessor. */
     gtk_widget_destroy(replacement);
     assert_export(test_window, second);
+    assert_mnemonic_forwarded(second, TRUE);
     gtk_widget_destroy(second);
     assert_export(test_window, NULL);
     GtkWidget *fresh = append_bar(box);
@@ -264,10 +293,13 @@ static void test_export_lifecycle(void)
     assert_export(test_window, fresh);
     gtk_widget_unrealize(fresh);
     assert_export(test_window, NULL);
+    assert_mnemonic_forwarded(fresh, FALSE);
     gtk_widget_realize(fresh);
     assert_export(test_window, fresh);
+    assert_mnemonic_forwarded(fresh, TRUE);
     gtk_widget_destroy(test_window);
     drain();
+    name("ReleaseName", "org.kde.kappmenuview");
 }
 
 int main(int argc, char **argv)
