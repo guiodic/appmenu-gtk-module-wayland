@@ -4,6 +4,7 @@
 static GDBusConnection *bus;
 static GtkWidget *window, *bar, *submenu_item, *leaf;
 static guint requests, activations;
+static DbusmenuMenuitem *last_requested;
 
 static void drain(void)
 {
@@ -31,6 +32,7 @@ static void name(const char *method, const char *service)
 static void requested(DbusmenuMenuitem *item, guint timestamp, gpointer data)
 {
     requests++;
+    last_requested = item;
 }
 
 static void activated(GtkMenuItem *item, gpointer data)
@@ -40,6 +42,7 @@ static void activated(GtkMenuItem *item, gpointer data)
 
 static void test_mnemonics(void)
 {
+    requests = activations = 0;
     /* A registrar can hide the bar without providing a mnemonic receiver. */
     name("RequestName", "org.kde.kappmenu");
     g_assert_true(appmenu_registrar_present());
@@ -54,7 +57,6 @@ static void test_mnemonics(void)
     g_assert_null(gtk_window_peek_window_data(GTK_WINDOW(window))->kde_appmenu);
     g_assert_true(gtk_widget_mnemonic_activate(submenu_item, FALSE));
     g_assert_cmpuint(requests, ==, 1);
-    g_assert_false(forward_menu_mnemonic(submenu_item, TRUE, NULL));
     gtk_widget_set_sensitive(submenu_item, FALSE);
     g_assert_false(forward_menu_mnemonic(submenu_item, FALSE, NULL));
     gtk_widget_set_sensitive(submenu_item, TRUE);
@@ -102,6 +104,33 @@ static void test_mnemonics(void)
     g_object_set(gtk_widget_get_settings(bar), "gtk-shell-shows-menubar", TRUE, NULL);
     g_assert_true(forward_menu_mnemonic(submenu_item, FALSE, NULL));
     g_assert_cmpuint(requests, ==, 3);
+    name("ReleaseName", "org.kde.kappmenuview");
+}
+
+static void test_duplicate_mnemonics(void)
+{
+    name("RequestName", "org.kde.kappmenuview");
+    g_object_set(gtk_widget_get_settings(bar), "gtk-shell-shows-menubar", TRUE, NULL);
+    GtkWidget *duplicate = gtk_menu_item_new_with_mnemonic("_Finestre");
+    GtkWidget *menu = gtk_menu_new();
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_menu_item_new_with_label("Window"));
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(duplicate), menu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(bar), duplicate);
+    gtk_widget_show_all(duplicate);
+    drain();
+    DbusmenuMenuitem *item = dbusmenu_gtk_parse_get_cached_item(duplicate);
+    g_assert_nonnull(item);
+    g_signal_connect(item, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER, G_CALLBACK(requested), NULL);
+    guint before = requests;
+    /* Exercise GTK's real mnemonic hash, which marks these targets overloaded. */
+    g_assert_true(gtk_window_mnemonic_activate(GTK_WINDOW(window), GDK_KEY_f, GDK_MOD1_MASK));
+    DbusmenuMenuitem *first_requested = last_requested;
+    g_assert_true(gtk_window_mnemonic_activate(GTK_WINDOW(window), GDK_KEY_f, GDK_MOD1_MASK));
+    g_assert_cmpuint(requests, ==, before + 2);
+    g_assert_true(last_requested != first_requested);
+    g_assert_false(gtk_widget_get_mapped(menu));
+    g_assert_false(gtk_widget_get_mapped(gtk_menu_item_get_submenu(GTK_MENU_ITEM(submenu_item))));
+    gtk_widget_destroy(duplicate);
     name("ReleaseName", "org.kde.kappmenuview");
 }
 
@@ -153,6 +182,7 @@ int main(int argc, char **argv)
     g_assert_nonnull(item);
     g_signal_connect(item, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER, G_CALLBACK(requested), NULL);
     g_test_add_func("/appmenu/x11-export", test_x11_export);
+    g_test_add_func("/appmenu/duplicate-mnemonics", test_duplicate_mnemonics);
     g_test_add_func("/appmenu/mnemonics", test_mnemonics);
     int result = g_test_run();
     gtk_widget_destroy(window);

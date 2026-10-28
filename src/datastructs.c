@@ -252,8 +252,11 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 static gboolean forward_menu_mnemonic(GtkWidget *widget, gboolean group_cycling, gpointer user_data)
 {
 	(void)user_data;
+	/* GTK already rotates duplicate mnemonic targets before emitting this signal.
+	 * Forward its chosen item even when, e.g., Italian File/Finestre share Alt+F. */
+	(void)group_cycling;
 	GtkWidget *parent = gtk_widget_get_parent(widget);
-	if (group_cycling || !GTK_IS_MENU_BAR(parent) || !gtk_widget_is_sensitive(widget) ||
+	if (!GTK_IS_MENU_BAR(parent) || !gtk_widget_is_sensitive(widget) ||
 	    !gtk_widget_get_visible(widget) ||
 	    gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget)) == NULL ||
 	    !appmenu_mnemonic_receiver_present() ||
