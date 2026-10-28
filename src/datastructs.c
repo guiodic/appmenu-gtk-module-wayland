@@ -227,6 +227,10 @@ static void update_window_appmenu(GtkWindow *window, WindowData *data)
 		g_free(path);
 		g_object_unref(connection);
 	}
+	else
+	{
+		appmenu_set_address(gdk_window, NULL, NULL);
+	}
 }
 
 G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)

@@ -1,5 +1,18 @@
 /* Exercise the private mnemonic handler together with real GTK and D-Bus state. */
+#include <gio/gio.h>
+
+static gboolean fail_session_bus;
+static GDBusConnection *test_bus_get_sync(GBusType type, GCancellable *cancellable, GError **error);
+/* Inject only the failure in datastructs.c; other module code uses the real bus. */
+#define g_bus_get_sync test_bus_get_sync
 #include "../src/datastructs.c"
+#undef g_bus_get_sync
+
+static GDBusConnection *test_bus_get_sync(GBusType type, GCancellable *cancellable, GError **error)
+{
+    if (fail_session_bus) return NULL;
+    return g_bus_get_sync(type, cancellable, error);
+}
 #include "../src/hijack.h"
 
 static GDBusConnection *bus;
@@ -297,6 +310,14 @@ static void test_export_lifecycle(void)
     gtk_widget_realize(fresh);
     assert_export(test_window, fresh);
     assert_mnemonic_forwarded(fresh, TRUE);
+    /* A failed bus lookup must withdraw a previously advertised X11 export. */
+    WindowData *fresh_data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+    fail_session_bus = TRUE;
+    update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    fail_session_bus = FALSE;
+    assert_export(test_window, NULL);
+    update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    assert_export(test_window, fresh);
     gtk_widget_destroy(test_window);
     drain();
     name("ReleaseName", "org.kde.kappmenuview");

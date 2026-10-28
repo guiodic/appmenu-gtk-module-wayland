@@ -131,3 +131,11 @@ used for Xwayland applications. They do not require a Plasma session.
 Verify popup placement separately in Plasma with both native Wayland and
 Xwayland GTK applications. Mnemonic forwarding targets KDE's appmenu viewer
 (`org.kde.kappmenuview`); registrar presence alone does not imply a viewer.
+
+The same regression suite is available with Meson:
+
+```sh
+meson setup build-meson -Dtests=true
+meson compile -C build-meson
+meson test -C build-meson --print-errorlogs
+```

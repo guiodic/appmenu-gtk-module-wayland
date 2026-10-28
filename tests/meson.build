@@ -10,7 +10,6 @@ if build_gtk3 and get_option('tests')
 
     wnck_ver = '>=3.4.8'
     wnck = dependency('libwnck-3.0',version: wnck_ver, required: false)
-    x11 = dependency('x11', required: false)
     if(wnck.found() and x11.found())
         client = executable('menumodel-client',client_sources,
             dependencies: [gtk3_parser_dep, wnck, x11]
@@ -23,6 +22,27 @@ if build_gtk3 and get_option('tests')
 #    test('radio',radio)
     hello = executable('hello',join_paths('demos','hello.c'), dependencies: gtk3)
 #    test('hello',hello)
+    # test-mnemonics.c includes datastructs.c to exercise the private handler.
+    mnemonic_sources = files(
+        'test-mnemonics.c',
+        '../src/appmenu-gtk-module.c',
+        '../src/hijack.c',
+        '../src/support.c',
+        '../src/blacklist.c',
+        '../src/platform.c',
+    )
+    mnemonics = executable('test-mnemonics',
+        [mnemonic_sources, lib_sources, wayland_sources],
+        dependencies: [gtk3, dbusmenu_glib, dbusmenu_gtk3, wayland_client, x11],
+        include_directories: include_directories('../wayland/generated', '../lib'))
+    dbus_run_session = find_program('dbus-run-session')
+    xvfb_run = find_program('xvfb-run')
+    test('mnemonics', dbus_run_session,
+        args: ['--', xvfb_run.full_path(), '-a', mnemonics.full_path()],
+        depends: mnemonics,
+        env: ['GDK_BACKEND=x11', 'NO_AT_BRIDGE=1'],
+        timeout: 30)
+
     vala_found = add_languages('vala', required: false)
     if vala_found
         black = executable('black',join_paths('demos','black.vala'), dependencies: gtk3)
