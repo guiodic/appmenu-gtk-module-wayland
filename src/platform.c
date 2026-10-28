@@ -312,6 +312,28 @@ struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow* gdk_win, const char*
 		return NULL;
 	}
 
+#ifdef GDK_WINDOWING_X11
+	/* KWin discovers X11/Xwayland DBusMenu exports through these properties. */
+	if (GDK_IS_X11_WINDOW(gdk_win))
+	{
+		Display *display = GDK_WINDOW_XDISPLAY(gdk_win);
+		Window window = GDK_WINDOW_XID(gdk_win);
+		Atom type = XInternAtom(display, "STRING", False);
+		XChangeProperty(display, window,
+		                XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False),
+		                type, 8, PropModeReplace, (const unsigned char *)unique_bus_name,
+		                strlen(unique_bus_name));
+		XChangeProperty(display, window,
+		                XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False),
+		                type, 8, PropModeReplace, (const unsigned char *)menubar_object_path,
+		                strlen(menubar_object_path));
+		gdk_display_flush(gdk_window_get_display(gdk_win));
+		return NULL;
+	}
+#endif
+	if (!GDK_IS_WAYLAND_WINDOW(gdk_win))
+		return NULL;
+
 	if (org_kde_kwin_appmenu_manager != NULL)
 	{
 		g_debug("org_kde_kwin_appmenu_set_address: %s %s", unique_bus_name, menubar_object_path);

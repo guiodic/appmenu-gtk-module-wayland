@@ -113,3 +113,21 @@ export UBUNTU_MENUPROXY
 **YOU SHOULD RELOGIN AFTER INSTALLING THIS MODULE FIRST TIME**
 
 
+
+### Regression tests
+
+With GTK 3, libdbusmenu-gtk3, Wayland and X11 development libraries, CMake,
+Ninja, D-Bus, Xvfb and xauth installed:
+
+```sh
+cmake -S . -B build -G Ninja -DBUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The tests use a private D-Bus session and Xvfb to check mnemonic forwarding,
+GTK action fallback, viewer availability and the KDE appmenu X11 properties
+used for Xwayland applications. They do not require a Plasma session.
+Verify popup placement separately in Plasma with both native Wayland and
+Xwayland GTK applications. Mnemonic forwarding targets KDE's appmenu viewer
+(`org.kde.kappmenuview`); registrar presence alone does not imply a viewer.

@@ -33,8 +33,7 @@
 #include <libdbusmenu-gtk/parser.h>
 #include "unity-gtk-menu-item-private.h"
 
-/* libdbusmenu-gtk internal but exported functions */
-DbusmenuMenuitem *dbusmenu_gtk_parse_get_item(GtkWidget *widget);
+/* libdbusmenu-gtk internal but exported cache lookup */
 DbusmenuMenuitem *dbusmenu_gtk_parse_get_cached_item(GtkWidget *widget);
 
 G_GNUC_INTERNAL G_DEFINE_QUARK(appmenu_gtk_wayland_window_data, appmenu_gtk_wayland_window_data);
@@ -255,7 +254,9 @@ static gboolean forward_menu_mnemonic(GtkWidget *widget, gboolean group_cycling,
 	(void)user_data;
 	GtkWidget *parent = gtk_widget_get_parent(widget);
 	if (group_cycling || !GTK_IS_MENU_BAR(parent) || !gtk_widget_is_sensitive(widget) ||
-	    !gtk_widget_get_visible(widget) || !appmenu_registrar_present() ||
+	    !gtk_widget_get_visible(widget) ||
+	    gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget)) == NULL ||
+	    !appmenu_mnemonic_receiver_present() ||
 	    !gtk_widget_shell_shows_menubar(parent))
 		return FALSE;
 
@@ -263,7 +264,10 @@ static gboolean forward_menu_mnemonic(GtkWidget *widget, gboolean group_cycling,
 	if (shell_data == NULL || shell_data->window == NULL || shell_data->server == NULL)
 		return FALSE;
 	WindowData *window_data = gtk_window_peek_window_data(shell_data->window);
-	if (window_data == NULL || window_data->kde_appmenu == NULL)
+	if (window_data == NULL)
+		return FALSE;
+	GdkDisplay *display = gtk_widget_get_display(widget);
+	if (GDK_IS_WAYLAND_DISPLAY(display) && window_data->kde_appmenu == NULL)
 		return FALSE;
 
 	/* Look up the current export instead of retaining an item across menu rebuilds. */
@@ -318,11 +322,9 @@ static void fix_dbusmenu(GtkWidget *widget, gpointer user_data)
 	{
 		DbusmenuMenuitem *item = g_object_get_data(G_OBJECT(widget), "dbusmenu-gtk-item");
 
-		/* Fallback to internal lookup functions if data is not found directly */
+		/* Parsed items may also be available through libdbusmenu's cache. */
 		if (item == NULL)
 			item = dbusmenu_gtk_parse_get_cached_item(widget);
-		if (item == NULL)
-			item = dbusmenu_gtk_parse_get_item(widget);
 
 		if (item != NULL)
 		{

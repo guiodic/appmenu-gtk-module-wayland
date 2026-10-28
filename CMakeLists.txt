@@ -6,6 +6,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(DBUSMENU_GTK3 REQUIRED IMPORTED_TARGET dbusmenu-gtk3-0.4)
 pkg_check_modules(DBUSMENU_GLIB REQUIRED IMPORTED_TARGET dbusmenu-glib-0.4)
+pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 
 set(CMAKE_C_STANDARD 11)
@@ -30,7 +31,7 @@ add_library(appmenu-gtk-module-wayland  SHARED
 )
 
 target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
-target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT)
+target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
 
 option(BUILD_TESTS "Build test applications" OFF)
 
@@ -39,4 +40,15 @@ if(BUILD_TESTS)
 
     add_executable(unity-gtk-menu-tester "${TEST_DIR}/demos/unity-gtk-menu-tester.c")
     target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
+
+    enable_testing()
+    get_target_property(MODULE_SOURCES appmenu-gtk-module-wayland SOURCES)
+    list(REMOVE_ITEM MODULE_SOURCES "${SRC_DIR}/datastructs.c")
+    add_executable(test-mnemonics "${TEST_DIR}/test-mnemonics.c" ${MODULE_SOURCES})
+    target_include_directories(test-mnemonics PRIVATE "${GENERATED_DIR}" "${LIB_DIR}")
+    target_link_libraries(test-mnemonics PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3
+        PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
+    add_test(NAME mnemonics COMMAND dbus-run-session -- xvfb-run -a
+        ${CMAKE_COMMAND} -E env GDK_BACKEND=x11 NO_AT_BRIDGE=1 $<TARGET_FILE:test-mnemonics>)
+    set_tests_properties(mnemonics PROPERTIES TIMEOUT 30)
 endif()
