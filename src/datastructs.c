@@ -25,6 +25,7 @@
 #include "datastructs.h"
 #include "datastructs-private.h"
 #include "platform.h"
+#include "support.h"
 
 #include <libdbusmenu-glib/server.h>
 #include <libdbusmenu-glib/menuitem.h>
@@ -247,6 +248,54 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 
 		menu_shell_data->window = NULL;
 	}
+}
+
+static gboolean forward_menu_mnemonic(GtkWidget *widget, gboolean group_cycling, gpointer user_data)
+{
+	(void)user_data;
+	GtkWidget *parent = gtk_widget_get_parent(widget);
+	if (group_cycling || !GTK_IS_MENU_BAR(parent) || !gtk_widget_is_sensitive(widget) ||
+	    !gtk_widget_get_visible(widget) || !appmenu_registrar_present() ||
+	    !gtk_widget_shell_shows_menubar(parent))
+		return FALSE;
+
+	MenuShellData *shell_data = gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(parent));
+	if (shell_data == NULL || shell_data->window == NULL || shell_data->server == NULL)
+		return FALSE;
+	WindowData *window_data = gtk_window_peek_window_data(shell_data->window);
+	if (window_data == NULL || window_data->kde_appmenu == NULL)
+		return FALSE;
+
+	/* Look up the current export instead of retaining an item across menu rebuilds. */
+	DbusmenuMenuitem *item = dbusmenu_gtk_parse_get_cached_item(widget);
+	if (item == NULL)
+		return FALSE;
+	DbusmenuMenuitem *root = NULL;
+	g_object_get(shell_data->server, DBUSMENU_SERVER_PROP_ROOT_NODE, &root, NULL);
+	gboolean current_export = root != NULL && dbusmenu_menuitem_get_parent(item) == root;
+	g_clear_object(&root);
+	if (!current_export)
+		return FALSE;
+
+	/* Let the global menu position and draw the popup, not the zero-sized GTK bar. */
+	dbusmenu_menuitem_show_to_user(item, gtk_get_current_event_time());
+	return TRUE;
+}
+
+static void connect_menu_mnemonic(GtkWidget *widget, gpointer user_data)
+{
+	(void)user_data;
+	if (GTK_IS_MENU_ITEM(widget) &&
+	    g_signal_handler_find(widget, G_SIGNAL_MATCH_FUNC, 0, 0, NULL, forward_menu_mnemonic, NULL) == 0)
+		g_signal_connect(widget, "mnemonic-activate", G_CALLBACK(forward_menu_mnemonic), NULL);
+}
+
+static void on_menu_item_inserted(GtkMenuShell *shell, GtkWidget *child, gint position, gpointer user_data)
+{
+	(void)shell;
+	(void)position;
+	(void)user_data;
+	connect_menu_mnemonic(child, NULL);
 }
 
 static void fix_dbusmenu(GtkWidget *widget, gpointer user_data);
@@ -518,6 +567,13 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 				{
 					fix_dbusmenu(GTK_WIDGET(menu_shell), NULL);
 					schedule_fix(GTK_WIDGET(menu_shell));
+					if (GTK_IS_MENU_BAR(menu_shell))
+					{
+						gtk_container_foreach(GTK_CONTAINER(menu_shell), connect_menu_mnemonic, NULL);
+						if (g_signal_handler_find(menu_shell, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
+						                          on_menu_item_inserted, NULL) == 0)
+							g_signal_connect_after(menu_shell, "insert", G_CALLBACK(on_menu_item_inserted), NULL);
+					}
 				}
 
 				gchar *path = g_strdup_printf("/MenuBar/%u/%p", window_data->window_id, menu_shell);

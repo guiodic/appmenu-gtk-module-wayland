@@ -76,14 +76,21 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 	return should_run;
 }
 
-G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
+G_GNUC_INTERNAL bool appmenu_registrar_present(void)
 {
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 	for (int i = 0; i < 4; i++)
-	{
 		if (registrar_present[i])
 			return true;
-	}
+#endif
+	return false;
+}
+
+G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
+{
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+	if (appmenu_registrar_present())
+		return true;
 #ifdef GDK_WINDOWING_WAYLAND
 	if (org_kde_kwin_appmenu_manager != NULL)
 		return true;
@@ -157,15 +164,7 @@ G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
 
 static void update_registrar_state()
 {
-	bool any_present = false;
-	for (int i = 0; i < 4; i++)
-	{
-		if (registrar_present[i])
-		{
-			any_present = true;
-			break;
-		}
-	}
+	bool any_present = appmenu_registrar_present();
 #ifdef GDK_WINDOWING_WAYLAND
 	if (org_kde_kwin_appmenu_manager != NULL)
 		any_present = true;
