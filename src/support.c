@@ -194,7 +194,8 @@ static void on_name_appeared(GDBusConnection *connection, const char *name, cons
 
 	int index = GPOINTER_TO_INT(user_data);
 	bus_name_present[index] = true;
-	update_registrar_state();
+	if (index < REGISTRAR_COUNT)
+		update_registrar_state();
 }
 
 static void on_name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
@@ -203,7 +204,8 @@ static void on_name_vanished(GDBusConnection *connection, const char *name, gpoi
 
 	int index = GPOINTER_TO_INT(user_data);
 	bus_name_present[index] = false;
-	update_registrar_state();
+	if (index < REGISTRAR_COUNT)
+		update_registrar_state();
 }
 #endif
 

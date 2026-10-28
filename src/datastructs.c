@@ -197,6 +197,38 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 	return window_data;
 }
 
+/* Publish the newest surviving export, or withdraw it when the last bar leaves. */
+static void update_window_appmenu(GtkWindow *window, WindowData *data)
+{
+	if (data->kde_appmenu != NULL)
+	{
+		release_appmenu(data->kde_appmenu);
+		data->kde_appmenu = NULL;
+	}
+
+	GdkWindow *gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
+	if (gdk_window == NULL)
+		return;
+
+	GSList *last = g_slist_last(data->dbusmenu_servers);
+	if (last == NULL)
+	{
+		appmenu_set_address(gdk_window, NULL, NULL);
+		return;
+	}
+
+	GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+	if (connection != NULL)
+	{
+		gchar *path = NULL;
+		g_object_get(last->data, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
+		data->kde_appmenu = appmenu_set_address(gdk_window,
+		    g_dbus_connection_get_unique_name(connection), path);
+		g_free(path);
+		g_object_unref(connection);
+	}
+}
+
 G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
 {
 	g_debug("gtk_window_disconnect_menu_shell");
@@ -245,6 +277,7 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 		    menu_shell_data->server = NULL;
 		}
 
+		update_window_appmenu(window, window_data);
 		menu_shell_data->window = NULL;
 	}
 }
@@ -590,21 +623,7 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 				window_data->dbusmenu_servers = g_slist_append(window_data->dbusmenu_servers, srv);
 				menu_shell_data->server       = g_object_ref(srv);
 
-				GDBusConnection* connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-				if (connection != NULL)
-				{
-					const char* unique_bus_name = g_dbus_connection_get_unique_name(connection);
-
-					if (window_data->kde_appmenu != NULL)
-						release_appmenu(window_data->kde_appmenu);
-
-					window_data->kde_appmenu = appmenu_set_address(gtk_widget_get_window(GTK_WIDGET(window)), unique_bus_name, path);
-					g_object_unref(connection);
-				}
-				else
-				{
-					g_debug("gtk_window_connect_menu_shell: failed to get session bus");
-				}
+				update_window_appmenu(window, window_data);
 
 				g_free(path);
 			}

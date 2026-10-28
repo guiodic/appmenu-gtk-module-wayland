@@ -319,19 +319,25 @@ struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow* gdk_win, const char*
 		Display *display = GDK_WINDOW_XDISPLAY(gdk_win);
 		Window window = GDK_WINDOW_XID(gdk_win);
 		Atom type = XInternAtom(display, "STRING", False);
-		XChangeProperty(display, window,
-		                XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False),
-		                type, 8, PropModeReplace, (const unsigned char *)unique_bus_name,
-		                strlen(unique_bus_name));
-		XChangeProperty(display, window,
-		                XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False),
-		                type, 8, PropModeReplace, (const unsigned char *)menubar_object_path,
-		                strlen(menubar_object_path));
+		Atom service = XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False);
+		Atom path = XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False);
+		if (unique_bus_name != NULL && menubar_object_path != NULL)
+		{
+			XChangeProperty(display, window, service, type, 8, PropModeReplace,
+			                (const unsigned char *)unique_bus_name, strlen(unique_bus_name));
+			XChangeProperty(display, window, path, type, 8, PropModeReplace,
+			                (const unsigned char *)menubar_object_path, strlen(menubar_object_path));
+		}
+		else
+		{
+			XDeleteProperty(display, window, service);
+			XDeleteProperty(display, window, path);
+		}
 		gdk_display_flush(gdk_window_get_display(gdk_win));
 		return NULL;
 	}
 #endif
-	if (!GDK_IS_WAYLAND_WINDOW(gdk_win))
+	if (!GDK_IS_WAYLAND_WINDOW(gdk_win) || unique_bus_name == NULL || menubar_object_path == NULL)
 		return NULL;
 
 	if (org_kde_kwin_appmenu_manager != NULL)

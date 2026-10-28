@@ -1,5 +1,6 @@
 /* Exercise the private mnemonic handler together with real GTK and D-Bus state. */
 #include "../src/datastructs.c"
+#include "../src/hijack.h"
 
 static GDBusConnection *bus;
 static GtkWidget *window, *bar, *submenu_item, *leaf;
@@ -78,7 +79,8 @@ static void test_mnemonics(void)
     DbusmenuMenuitem *item = dbusmenu_gtk_parse_get_cached_item(later);
     g_assert_nonnull(item);
     g_signal_connect(item, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER, G_CALLBACK(requested), NULL);
-    connect_menu_mnemonic(later, NULL);
+    g_assert_cmpuint(g_signal_handler_find(later, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
+        forward_menu_mnemonic, NULL), !=, 0);
     g_assert_true(gtk_widget_mnemonic_activate(later, FALSE));
     g_assert_cmpuint(requests, ==, 2);
     MenuShellData *data = gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(bar));
@@ -158,6 +160,116 @@ static void test_x11_export(void)
     }
 }
 
+static void setting_changed(GObject *object, GParamSpec *pspec, gpointer data)
+{
+    (*(guint *)data)++;
+}
+
+static void test_viewer_settings(void)
+{
+    g_assert_false(appmenu_registrar_present());
+    GtkSettings *settings = gtk_widget_get_settings(bar);
+    for (guint initial = 0; initial < 2; initial++) {
+        g_object_set(settings, "gtk-shell-shows-menubar", initial, NULL);
+        guint notifications = 0;
+        gulong handler = g_signal_connect(settings, "notify::gtk-shell-shows-menubar",
+            G_CALLBACK(setting_changed), &notifications);
+        name("RequestName", "org.kde.kappmenuview");
+        g_assert_true(appmenu_mnemonic_receiver_present());
+        gboolean current;
+        g_object_get(settings, "gtk-shell-shows-menubar", &current, NULL);
+        g_assert_cmpint(current, ==, initial);
+        name("ReleaseName", "org.kde.kappmenuview");
+        g_assert_false(appmenu_mnemonic_receiver_present());
+        g_object_get(settings, "gtk-shell-shows-menubar", &current, NULL);
+        g_assert_cmpint(current, ==, initial);
+        g_assert_cmpuint(notifications, ==, 0);
+        g_signal_handler_disconnect(settings, handler);
+    }
+}
+
+static gchar *x11_property(GtkWidget *widget, const char *property)
+{
+    GdkWindow *gdk_window = gtk_widget_get_window(widget);
+    Display *display = GDK_WINDOW_XDISPLAY(gdk_window);
+    Atom type;
+    int format;
+    unsigned long count, remaining;
+    unsigned char *value = NULL;
+    g_assert_cmpint(XGetWindowProperty(display, GDK_WINDOW_XID(gdk_window),
+        XInternAtom(display, property, False), 0, 1024, False, AnyPropertyType,
+        &type, &format, &count, &remaining, &value), ==, Success);
+    gchar *result = type == None ? NULL : g_strndup((char *)value, count);
+    if (value) XFree(value);
+    return result;
+}
+
+static void assert_export(GtkWidget *widget, GtkWidget *menubar)
+{
+    gchar *service = x11_property(widget, "_KDE_NET_WM_APPMENU_SERVICE_NAME");
+    gchar *path = x11_property(widget, "_KDE_NET_WM_APPMENU_OBJECT_PATH");
+    if (menubar) {
+        MenuShellData *data = gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar));
+        g_assert_nonnull(data->server);
+        gchar *expected = NULL;
+        g_object_get(data->server, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &expected, NULL);
+        g_assert_cmpstr(service, ==, g_dbus_connection_get_unique_name(bus));
+        g_assert_cmpstr(path, ==, expected);
+        g_free(expected);
+    } else {
+        g_assert_null(service);
+        g_assert_null(path);
+    }
+    g_free(service);
+    g_free(path);
+}
+
+static GtkWidget *append_bar(GtkWidget *box)
+{
+    GtkWidget *menubar = gtk_menu_bar_new();
+    GtkWidget *item = gtk_menu_item_new_with_label("File");
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), gtk_menu_new());
+    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), item);
+    gtk_box_pack_start(GTK_BOX(box), menubar, FALSE, FALSE, 0);
+    gtk_widget_show_all(menubar);
+    return menubar;
+}
+
+static void test_export_lifecycle(void)
+{
+    /* Install the real realize/unrealize hooks: no manual disconnect in this test. */
+    store_pre_hijacked();
+    hijack_menu_bar_class_vtable(GTK_TYPE_MENU_BAR);
+    GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(test_window), box);
+    GtkWidget *first = append_bar(box);
+    GtkWidget *second = append_bar(box);
+    gtk_widget_show_all(test_window);
+    drain();
+    assert_export(test_window, second);
+    /* Removing a non-published menu must preserve the newest export. */
+    gtk_widget_destroy(first);
+    assert_export(test_window, second);
+    GtkWidget *replacement = append_bar(box);
+    drain();
+    assert_export(test_window, replacement);
+    /* Removing the published menu restores its surviving predecessor. */
+    gtk_widget_destroy(replacement);
+    assert_export(test_window, second);
+    gtk_widget_destroy(second);
+    assert_export(test_window, NULL);
+    GtkWidget *fresh = append_bar(box);
+    drain();
+    assert_export(test_window, fresh);
+    gtk_widget_unrealize(fresh);
+    assert_export(test_window, NULL);
+    gtk_widget_realize(fresh);
+    assert_export(test_window, fresh);
+    gtk_widget_destroy(test_window);
+    drain();
+}
+
 int main(int argc, char **argv)
 {
     gtk_test_init(&argc, &argv, NULL);
@@ -184,6 +296,8 @@ int main(int argc, char **argv)
     g_test_add_func("/appmenu/x11-export", test_x11_export);
     g_test_add_func("/appmenu/duplicate-mnemonics", test_duplicate_mnemonics);
     g_test_add_func("/appmenu/mnemonics", test_mnemonics);
+    g_test_add_func("/appmenu/viewer-settings", test_viewer_settings);
+    g_test_add_func("/appmenu/export-lifecycle", test_export_lifecycle);
     int result = g_test_run();
     gtk_widget_destroy(window);
     g_object_unref(bus);
