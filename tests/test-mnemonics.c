@@ -565,7 +565,6 @@ static void test_initial_bus_failure(void)
     gtk_widget_show_all(test_window);
     WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
     g_assert_nonnull(data);
-    g_assert_false(data->x11_bus_initialized);
     g_assert_null(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->server);
     g_assert_nonnull(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->pending_root);
     drain();
@@ -574,7 +573,6 @@ static void test_initial_bus_failure(void)
     fail_session_bus = FALSE;
     /* No realize, connect, or explicit update after the bus becomes available. */
     assert_export(test_window, menubar);
-    g_assert_true(data->x11_bus_initialized);
     gtk_widget_destroy(test_window);
     drain();
 }

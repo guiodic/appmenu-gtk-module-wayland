@@ -112,12 +112,12 @@ export UBUNTU_MENUPROXY
 
 **YOU SHOULD RELOGIN AFTER INSTALLING THIS MODULE FIRST TIME**
 
-
-
 ### Regression tests
 
-With GTK 3, libdbusmenu-gtk3, Wayland and X11 development libraries, CMake,
-Ninja, D-Bus, Xvfb and xauth installed:
+Tests require Python 3, D-Bus, Xvfb and xauth in addition to the GTK 3,
+libdbusmenu-gtk3, Wayland and X11 development dependencies.
+
+With CMake and Ninja:
 
 ```sh
 cmake -S . -B build -G Ninja -DBUILD_TESTS=ON
@@ -125,14 +125,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The tests use a private D-Bus session and Xvfb to check mnemonic forwarding,
-GTK action fallback, viewer availability and the KDE appmenu X11 properties
-used for Xwayland applications. They do not require a Plasma session.
-Verify popup placement separately in Plasma with both native Wayland and
-Xwayland GTK applications. Mnemonic forwarding targets KDE's appmenu viewer
-(`org.kde.kappmenuview`); registrar presence alone does not imply a viewer.
-
-The same regression suite is available with Meson:
+With Meson:
 
 ```sh
 meson setup build-meson -Dtests=true
@@ -140,65 +133,10 @@ meson compile -C build-meson
 meson test -C build-meson --print-errorlogs
 ```
 
-The regression runners clear `GTK_MODULES` and `GTK3_MODULES` so installed
-GTK modules cannot interfere with the test's own hooks. Meson uses a build-host
-Python 3 runner, honors `MESON_EXE_WRAPPER` for cross-built targets, and reports
-a skipped test when the target cannot run and no wrapper is available.
+The suite checks mnemonic forwarding, GTK action fallback, menu export lifecycle
+and recovery from initial session-bus connection failures without requiring Plasma.
+Check actual popup placement separately with Material in a Plasma Wayland session,
+using both native Wayland applications and Xwayland applications (`GDK_BACKEND=x11`).
 
-Both test runners use a temporary, isolated XDG configuration so user or system
-GTK settings cannot load additional modules. A temporary `settings.ini` also
-sets `gtk-modules=` explicitly to override GTK's compiled-in system configuration.
-Python 3 is required for either test runner. This module targets Plasma Wayland
-sessions with native GTK Wayland and Xwayland applications; builds require both
-backend development dependencies.
-Transient session-bus lookup failures withdraw the menu address and retry while
-the window and menu remain alive. This does not promise recovery from a complete
-session-bus restart, which may terminate GTK applications and invalidate exports.
-
-Menu publication, including initial Xwayland bus-dependent setup, obtains the
-session bus asynchronously. Failed lookups retry after 1, 2, 4, 8, 16 and at most
-30 seconds while the menu remains alive. Replacing/unrealizing a menu or closing
-its window cancels pending requests and retries; late replies cannot republish
-an obsolete export. The backoff resets after a successful lookup. Parsed menu
-models are retained while the bus is unavailable; DbusmenuServer instances are
-created only after obtaining the shared session connection, because libdbusmenu
-does not retry its own failed initial connection.
-
-The runner also starts a fresh target process for `--real-bus-failure`, applying
-the same cross emulator. This avoids GIO's cached connection. An independent
-libdbusmenu probe confirms that an unreachable address causes a real acquisition
-failure; the module must defer its own servers until the bus is available and
-recover without reconnecting the menu. A `GetLayout` call to the advertised
-object verifies registration and menu contents after recovery.
-
-When CMake cross-compiles the tests, set `CMAKE_CROSSCOMPILING_EMULATOR` to a
-semicolon-separated command and argument list. The runner applies it only to
-the target test binary; Python, D-Bus and Xvfb run on the build machine. Without
-an emulator CTest reports the test as skipped (exit status 77). Explicit CMake
-wrapper arguments take precedence over the Meson wrapper environment variable.
-
-The module leaves GTK's `gtk-shell-shows-menubar` setting unchanged. When it
-is false, GtkApplicationWindow supplies its normal menubar. When the desktop
-sets it to true (as Plasma's GMenu proxy does), the module creates a private,
-offscreen menubar from the application's GMenu models. It retains GTK's mnemonic
-registration and `app.`/`win.` action lookup without adding a visible bar.
-Model replacement, setting changes and window unrealize clean up the private
-bar; registrar changes only request a new layout.
-
-For Xwayland windows whose menubar the module exports, native GTK menu discovery
-paths are withdrawn before the window is mapped. Plasma's `gmenudbusmenuproxy`
-then skips those windows, including when the proxy starts later. Material and
-the mnemonic handler use the same DBusMenu export and item IDs. GTK action
-metadata is left intact; windows without an exported menubar keep their native
-menu metadata. When the last module-owned bar is removed, the original native
-menu paths (including absent properties) are restored at idle. A replacement bar
-cancels that restoration, so synchronous menu replacement does not expose a
-competing GMenu export. Window teardown cancels the pending restoration.
-The module does not advertise fabricated GTK menu/action paths for applications
-without a native GMenu export.
-
-The regression suite exercises both shell-setting values, exported action
-activation, model replacement, settings changes and window unrealize/realize.
-For desktop integration tests, leave `gmenudbusmenuproxy` enabled, try both proxy
-startup orders, and check the window's `_KDE_NET_WM_APPMENU_SERVICE_NAME` with
-`xprop` alongside Alt+mnemonic: seeing a menu alone does not verify forwarding.
+See [Testing and appmenu integration](docs/testing.md) for cross-compilation,
+test isolation, integration checks and supported recovery behavior.

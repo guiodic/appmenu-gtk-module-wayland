@@ -175,11 +175,6 @@ G_GNUC_INTERNAL void gtk_module_notify_menu_state(void)
 	g_list_free(windows);
 }
 
-static void update_registrar_state(void)
-{
-	gtk_module_notify_menu_state();
-}
-
 static void on_name_appeared(GDBusConnection *connection, const char *name, const char *name_owner,
                              gpointer user_data)
 {
@@ -188,7 +183,7 @@ static void on_name_appeared(GDBusConnection *connection, const char *name, cons
 	int index = GPOINTER_TO_INT(user_data);
 	bus_name_present[index] = true;
 	if (index < REGISTRAR_COUNT)
-		update_registrar_state();
+		gtk_module_notify_menu_state();
 }
 
 static void on_name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
@@ -198,7 +193,7 @@ static void on_name_vanished(GDBusConnection *connection, const char *name, gpoi
 	int index = GPOINTER_TO_INT(user_data);
 	bus_name_present[index] = false;
 	if (index < REGISTRAR_COUNT)
-		update_registrar_state();
+		gtk_module_notify_menu_state();
 }
 #endif
 
@@ -268,6 +263,6 @@ G_GNUC_INTERNAL void watch_registrar_dbus()
 			                                  NULL);
 		}
 	}
-	update_registrar_state();
+	gtk_module_notify_menu_state();
 #endif
 }

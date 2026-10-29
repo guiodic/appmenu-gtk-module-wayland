@@ -31,19 +31,16 @@
 struct _WindowData
 {
 	uint window_id;
-	GMenu *menu_model;
 	GSList *menus;
 	GSList *dbusmenu_servers;
 	DbusmenuServer *published_server; /* Borrowed from dbusmenu_servers. */
 	guint appmenu_retry_id;
 	guint appmenu_retry_delay;
 	GCancellable *appmenu_request;
-	gboolean x11_bus_initialized;
 	gboolean x11_menu_paths_hidden;
 	char *x11_native_menubar_path;
 	char *x11_native_appmenu_path;
 	guint x11_restore_menu_paths_id;
-	GMenuModel *old_model;
 	struct org_kde_kwin_appmenu *kde_appmenu;
 	GtkWidget *menu;
 };

@@ -63,11 +63,6 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 		if (window_data->appmenu_request != NULL)
 			g_cancellable_cancel(window_data->appmenu_request);
 		g_clear_object(&window_data->appmenu_request);
-		if (window_data->menu_model != NULL)
-			g_object_unref(window_data->menu_model);
-
-		if (window_data->old_model != NULL)
-			g_object_unref(window_data->old_model);
 
 		if (window_data->menus != NULL)
 		{
@@ -93,12 +88,6 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 G_GNUC_INTERNAL WindowData *window_data_copy(WindowData *source)
 {
 	WindowData *ret = window_data_new();
-
-	if (source->menu_model != NULL)
-		ret->menu_model = g_object_ref(source->menu_model);
-
-	if (source->old_model != NULL)
-		ret->old_model = g_object_ref(source->old_model);
 
 	if (source->menus != NULL)
 		ret->menus = g_slist_copy_deep(source->menus, (GCopyFunc)g_object_ref, NULL);
@@ -257,8 +246,6 @@ static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer us
 		{
 			if (connection != NULL)
 			{
-				if (GDK_IS_X11_WINDOW(gdk_window))
-					gtk_x11_window_init_bus_properties(window, data, connection);
 				/* libdbusmenu does not retry a failed initial bus acquisition.
 				 * Construct its servers only while holding the shared session
 				 * connection, so their own async acquisitions can reuse it. */

@@ -1,3 +1,6 @@
+install_data('testing.md',
+    install_dir: join_paths(get_option('datadir'), 'doc', meson.project_name(), 'docs'))
+
 ent_dict = {
     'CMAKE_PROJECT_NAME' : meson.project_name(),
     'PACKAGE_BUGREPORT': 'https://github.com/rilian-la-te/vala-panel-appmenu/issues',
