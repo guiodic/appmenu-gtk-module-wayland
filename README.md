@@ -139,3 +139,8 @@ meson setup build-meson -Dtests=true
 meson compile -C build-meson
 meson test -C build-meson --print-errorlogs
 ```
+
+The regression runners clear `GTK_MODULES` and `GTK3_MODULES` so installed
+GTK modules cannot interfere with the test's own hooks. Meson uses a build-host
+Python 3 runner, honors `MESON_EXE_WRAPPER` for cross-built targets, and reports
+a skipped test when the target cannot run and no wrapper is available.

@@ -35,12 +35,19 @@ if build_gtk3 and get_option('tests')
         [mnemonic_sources, lib_sources, wayland_sources],
         dependencies: [gtk3, dbusmenu_glib, dbusmenu_gtk3, wayland_client, x11],
         include_directories: include_directories('../wayland/generated', '../lib'))
-    dbus_run_session = find_program('dbus-run-session')
-    xvfb_run = find_program('xvfb-run')
-    test('mnemonics', dbus_run_session,
-        args: ['--', xvfb_run.full_path(), '-a', mnemonics.full_path()],
+    dbus_run_session = find_program('dbus-run-session', native: true)
+    xvfb_run = find_program('xvfb-run', native: true)
+    python = find_program('python3', native: true)
+    runner_args = [files('run-mnemonics.py'),
+        '--can-run-host-binaries', meson.can_run_host_binaries() ? 'yes' : 'no']
+    if meson.is_cross_build()
+        runner_args += ['--cross-build']
+    endif
+    test('mnemonics', python,
+        # Keep the target object so Meson supplies MESON_EXE_WRAPPER when needed.
+        args: runner_args + [dbus_run_session.full_path(), xvfb_run.full_path(), mnemonics],
         depends: mnemonics,
-        env: ['GDK_BACKEND=x11', 'NO_AT_BRIDGE=1'],
+        env: ['GDK_BACKEND=x11', 'NO_AT_BRIDGE=1', 'GTK3_MODULES=', 'GTK_MODULES='],
         timeout: 30)
 
     vala_found = add_languages('vala', required: false)

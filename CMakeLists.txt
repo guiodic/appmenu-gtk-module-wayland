@@ -49,6 +49,6 @@ if(BUILD_TESTS)
     target_link_libraries(test-mnemonics PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3
         PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
     add_test(NAME mnemonics COMMAND dbus-run-session -- xvfb-run -a
-        ${CMAKE_COMMAND} -E env GDK_BACKEND=x11 NO_AT_BRIDGE=1 $<TARGET_FILE:test-mnemonics>)
+        ${CMAKE_COMMAND} -E env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GTK3_MODULES= GTK_MODULES= $<TARGET_FILE:test-mnemonics>)
     set_tests_properties(mnemonics PROPERTIES TIMEOUT 30)
 endif()
