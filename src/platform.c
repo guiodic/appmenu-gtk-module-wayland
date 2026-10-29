@@ -209,17 +209,70 @@ G_GNUC_INTERNAL void gtk_x11_window_init_bus_properties(GtkWindow *window,
 
 }
 
+static void free_menu_paths_window(gpointer pointer)
+{
+	GWeakRef *ref = pointer;
+	g_weak_ref_clear(ref);
+	g_free(ref);
+}
+
+static gboolean restore_native_menu_paths(gpointer pointer)
+{
+	GtkWindow *window = g_weak_ref_get(pointer);
+	WindowData *data = window != NULL ? gtk_window_peek_window_data(window) : NULL;
+	if (data != NULL)
+	{
+		data->x11_restore_menu_paths_id = 0;
+		if (data->dbusmenu_servers == NULL && data->x11_menu_paths_hidden &&
+		    gtk_widget_get_realized(GTK_WIDGET(window)) &&
+		    !gtk_widget_in_destruction(GTK_WIDGET(window)))
+		{
+			gtk_widget_set_x11_property_string(GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH,
+			                                   data->x11_native_menubar_path);
+			gtk_widget_set_x11_property_string(GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH",
+			                                   data->x11_native_appmenu_path);
+			g_clear_pointer(&data->x11_native_menubar_path, g_free);
+			g_clear_pointer(&data->x11_native_appmenu_path, g_free);
+			data->x11_menu_paths_hidden = FALSE;
+		}
+	}
+	g_clear_object(&window);
+	return G_SOURCE_REMOVE;
+}
+
 G_GNUC_INTERNAL void gtk_x11_window_use_dbusmenu(GtkWindow *window)
 {
-	/* Initially called before mapping, after GTK publishes its metadata.
-	 * Advertise one menu protocol for this window. Plasma's GMenu proxy
-	 * discovers windows on map (and on proxy startup), so it must not build
-	 * a competing export with unrelated menu IDs. Leave action metadata alone. */
+	/* Advertise just DBusMenu while this module owns a bar. Preserve native
+	 * discovery paths for release, but do not expose them between synchronous
+	 * removal/insertion steps of a menu replacement: Plasma could import a
+	 * competing export. Only restore after the GTK transaction has settled. */
 	WindowData *data = gtk_window_peek_window_data(window);
-	if (data != NULL && data->dbusmenu_servers != NULL)
+	if (data == NULL)
+		return;
+	if (data->dbusmenu_servers != NULL)
 	{
+		if (data->x11_restore_menu_paths_id != 0)
+		{
+			g_source_remove(data->x11_restore_menu_paths_id);
+			data->x11_restore_menu_paths_id = 0;
+		}
+		if (!data->x11_menu_paths_hidden)
+		{
+			data->x11_native_menubar_path = gtk_widget_get_x11_property_string(
+			    GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH);
+			data->x11_native_appmenu_path = gtk_widget_get_x11_property_string(
+			    GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH");
+			data->x11_menu_paths_hidden = TRUE;
+		}
 		gtk_widget_set_x11_property_string(GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH, NULL);
 		gtk_widget_set_x11_property_string(GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH", NULL);
+	}
+	else if (data->x11_menu_paths_hidden && data->x11_restore_menu_paths_id == 0)
+	{
+		GWeakRef *ref = g_new0(GWeakRef, 1);
+		g_weak_ref_init(ref, window);
+		data->x11_restore_menu_paths_id = g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,
+		    restore_native_menu_paths, ref, free_menu_paths_window);
 	}
 }
 

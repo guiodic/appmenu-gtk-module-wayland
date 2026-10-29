@@ -178,8 +178,12 @@ paths are withdrawn before the window is mapped. Plasma's `gmenudbusmenuproxy`
 then skips those windows, including when the proxy starts later. Material and
 the mnemonic handler use the same DBusMenu export and item IDs. GTK action
 metadata is left intact; windows without an exported menubar keep their native
-menu metadata. The module does not advertise fabricated GTK menu/action paths
-for applications without a native GMenu export.
+menu metadata. When the last module-owned bar is removed, the original native
+menu paths (including absent properties) are restored at idle. A replacement bar
+cancels that restoration, so synchronous menu replacement does not expose a
+competing GMenu export. Window teardown cancels the pending restoration.
+The module does not advertise fabricated GTK menu/action paths for applications
+without a native GMenu export.
 
 The regression suite exercises both shell-setting values, exported action
 activation, model replacement, settings changes and window unrealize/realize.

@@ -54,6 +54,10 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 
 	if (window_data != NULL)
 	{
+		if (window_data->x11_restore_menu_paths_id != 0)
+			g_source_remove(window_data->x11_restore_menu_paths_id);
+		g_free(window_data->x11_native_menubar_path);
+		g_free(window_data->x11_native_appmenu_path);
 		if (window_data->appmenu_retry_id != 0)
 			g_source_remove(window_data->appmenu_retry_id);
 		if (window_data->appmenu_request != NULL)
@@ -303,6 +307,8 @@ static void update_window_appmenu(GtkWindow *window, WindowData *data)
 	if (gdk_window == NULL)
 		return;
 	appmenu_set_address(gdk_window, NULL, NULL);
+	if (GDK_IS_X11_WINDOW(gdk_window))
+		gtk_x11_window_use_dbusmenu(window);
 	if (data->dbusmenu_servers == NULL)
 		return;
 

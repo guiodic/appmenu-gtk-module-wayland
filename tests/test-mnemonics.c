@@ -278,6 +278,74 @@ static GtkWidget *append_bar(GtkWidget *box)
     return menubar;
 }
 
+static void set_native_menu_path(GtkWidget *widget, const char *property, const char *value)
+{
+    GdkWindow *win = gtk_widget_get_window(widget);
+    Display *display = GDK_WINDOW_XDISPLAY(win);
+    Atom atom = XInternAtom(display, property, False);
+    if (value)
+        XChangeProperty(display, GDK_WINDOW_XID(win), atom,
+            XInternAtom(display, "UTF8_STRING", False), 8, PropModeReplace,
+            (const unsigned char *)value, strlen(value));
+    else
+        XDeleteProperty(display, GDK_WINDOW_XID(win), atom);
+}
+
+static void assert_native_menu_path(GtkWidget *widget, const char *property, const char *expected)
+{
+    gchar *actual = x11_property(widget, property);
+    g_assert_cmpstr(actual, ==, expected);
+    g_free(actual);
+}
+
+static void test_native_menu_path_release(void)
+{
+    /* Preserve each property's value or absence independently. */
+    for (guint mask = 0; mask < 4; mask++) {
+        GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_container_add(GTK_CONTAINER(test_window), box);
+        gtk_widget_show_all(test_window);
+        const char *menu_path = mask & 1 ? "/original/menubar" : NULL;
+        const char *app_path = mask & 2 ? "/original/appmenu" : NULL;
+        set_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", menu_path);
+        set_native_menu_path(test_window, "_GTK_APP_MENU_OBJECT_PATH", app_path);
+        GtkWidget *menubar = append_bar(box);
+        drain();
+        WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+        assert_export(test_window, menubar);
+        assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", NULL);
+        assert_native_menu_path(test_window, "_GTK_APP_MENU_OBJECT_PATH", NULL);
+        gtk_widget_destroy(menubar);
+        g_assert_cmpuint(data->x11_restore_menu_paths_id, !=, 0);
+        /* A replacement in the same transaction must not reveal GMenu. */
+        assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", NULL);
+        menubar = append_bar(box);
+        g_assert_cmpuint(data->x11_restore_menu_paths_id, ==, 0);
+        drain();
+        assert_export(test_window, menubar);
+        assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", NULL);
+        assert_native_menu_path(test_window, "_GTK_APP_MENU_OBJECT_PATH", NULL);
+        gtk_widget_destroy(menubar);
+        drain();
+        assert_export(test_window, NULL);
+        assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", menu_path);
+        assert_native_menu_path(test_window, "_GTK_APP_MENU_OBJECT_PATH", app_path);
+        /* A later ownership cycle takes a new snapshot, not stale values. */
+        set_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", "/updated/menubar");
+        menubar = append_bar(box);
+        drain();
+        gtk_widget_destroy(menubar);
+        drain();
+        assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", "/updated/menubar");
+        menubar = append_bar(box);
+        gtk_widget_destroy(menubar);
+        g_assert_cmpuint(data->x11_restore_menu_paths_id, !=, 0);
+        gtk_widget_destroy(test_window); /* Cancels the pending weak callback. */
+        drain();
+    }
+}
+
 static void assert_mnemonic_forwarded(GtkWidget *menubar, gboolean expected)
 {
     GList *children = gtk_container_get_children(GTK_CONTAINER(menubar));
@@ -594,8 +662,13 @@ static void test_application_menubar(void)
             menubar = data->menus->data;
             assert_export(test_window, menubar);
             assert_mnemonic_forwarded(menubar, TRUE);
+            gchar *saved_path = g_strdup(data->x11_native_menubar_path);
+            g_assert_nonnull(saved_path);
             gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(test_window), FALSE);
+            assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", NULL);
             drain();
+            assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", saved_path);
+            g_free(saved_path);
             g_assert_null(data->menus);
             assert_export(test_window, NULL);
             gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(test_window), TRUE);
@@ -670,6 +743,7 @@ int main(int argc, char **argv)
     g_test_add_func("/appmenu/initial-bus-failure", test_initial_bus_failure);
     g_test_add_func("/appmenu/slow-bus-cancellation", test_slow_bus_cancellation);
     g_test_add_func("/appmenu/application-menubar", test_application_menubar);
+    g_test_add_func("/appmenu/native-menu-path-release", test_native_menu_path_release);
     int result = g_test_run();
     gtk_widget_destroy(window);
     g_object_unref(bus);
