@@ -34,6 +34,8 @@ struct _WindowData
 	GMenu *menu_model;
 	GSList *menus;
 	GSList *dbusmenu_servers;
+	DbusmenuServer *published_server; /* Borrowed from dbusmenu_servers. */
+	guint appmenu_retry_id;
 	GMenuModel *old_model;
 	struct org_kde_kwin_appmenu *kde_appmenu;
 	GtkWidget *menu;

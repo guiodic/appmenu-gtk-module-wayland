@@ -144,3 +144,11 @@ The regression runners clear `GTK_MODULES` and `GTK3_MODULES` so installed
 GTK modules cannot interfere with the test's own hooks. Meson uses a build-host
 Python 3 runner, honors `MESON_EXE_WRAPPER` for cross-built targets, and reports
 a skipped test when the target cannot run and no wrapper is available.
+
+Both test runners use a temporary, isolated XDG configuration so user or system
+GTK settings cannot load additional modules. Python 3 is required for either
+test runner. This module targets Plasma Wayland sessions with native GTK Wayland
+and Xwayland applications; builds require both backend development dependencies.
+Transient session-bus lookup failures withdraw the menu address and retry while
+the window and menu remain alive. This does not promise recovery from a complete
+session-bus restart, which may terminate GTK applications and invalidate exports.

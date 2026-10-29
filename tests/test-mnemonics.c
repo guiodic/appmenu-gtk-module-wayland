@@ -314,18 +314,42 @@ static void test_export_lifecycle(void)
     WindowData *fresh_data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
     fail_session_bus = TRUE;
     update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
-    fail_session_bus = FALSE;
     assert_export(test_window, NULL);
+    assert_mnemonic_forwarded(fresh, FALSE);
+    g_assert_cmpuint(fresh_data->appmenu_retry_id, !=, 0);
+    /* A second failure replaces, rather than accumulates, the pending retry. */
+    guint previous_retry = fresh_data->appmenu_retry_id;
     update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    g_assert_null(g_main_context_find_source_by_id(NULL, previous_retry));
+    fail_session_bus = FALSE;
+    /* Recover without any menu lifecycle event or manual republishing. */
+    for (guint attempt = 0; attempt < 40 && fresh_data->published_server == NULL; attempt++)
+        drain();
     assert_export(test_window, fresh);
+    assert_mnemonic_forwarded(fresh, TRUE);
+    g_assert_cmpuint(fresh_data->appmenu_retry_id, ==, 0);
+    fail_session_bus = TRUE;
+    update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    guint pending_retry = fresh_data->appmenu_retry_id;
+    gtk_widget_unrealize(fresh);
+    g_assert_null(g_main_context_find_source_by_id(NULL, pending_retry));
+    gtk_widget_realize(fresh);
+    pending_retry = fresh_data->appmenu_retry_id;
+    g_assert_cmpuint(pending_retry, !=, 0);
     gtk_widget_destroy(test_window);
+    fail_session_bus = FALSE;
     drain();
+    g_assert_null(g_main_context_find_source_by_id(NULL, pending_retry));
     name("ReleaseName", "org.kde.kappmenuview");
 }
 
 int main(int argc, char **argv)
 {
     gtk_test_init(&argc, &argv, NULL);
+    gchar *configured_modules = NULL;
+    g_object_get(gtk_settings_get_default(), "gtk-modules", &configured_modules, NULL);
+    g_assert_true(configured_modules == NULL || *configured_modules == '\0');
+    g_free(configured_modules);
     bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
     g_assert_nonnull(bus);
     watch_registrar_dbus();

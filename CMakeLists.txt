@@ -42,13 +42,16 @@ if(BUILD_TESTS)
     target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
 
     enable_testing()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
     get_target_property(MODULE_SOURCES appmenu-gtk-module-wayland SOURCES)
     list(REMOVE_ITEM MODULE_SOURCES "${SRC_DIR}/datastructs.c")
     add_executable(test-mnemonics "${TEST_DIR}/test-mnemonics.c" ${MODULE_SOURCES})
     target_include_directories(test-mnemonics PRIVATE "${GENERATED_DIR}" "${LIB_DIR}")
     target_link_libraries(test-mnemonics PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3
         PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
-    add_test(NAME mnemonics COMMAND dbus-run-session -- xvfb-run -a
-        ${CMAKE_COMMAND} -E env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GTK3_MODULES= GTK_MODULES= $<TARGET_FILE:test-mnemonics>)
-    set_tests_properties(mnemonics PROPERTIES TIMEOUT 30)
+    find_program(DBUS_RUN_SESSION dbus-run-session REQUIRED)
+    find_program(XVFB_RUN xvfb-run REQUIRED)
+    add_test(NAME mnemonics COMMAND ${Python3_EXECUTABLE} "${TEST_DIR}/run-mnemonics.py"
+        --can-run-host-binaries yes ${DBUS_RUN_SESSION} ${XVFB_RUN} $<TARGET_FILE:test-mnemonics>)
+    set_tests_properties(mnemonics PROPERTIES TIMEOUT 30 ENVIRONMENT "GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK3_MODULES=;GTK_MODULES=")
 endif()

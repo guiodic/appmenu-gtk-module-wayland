@@ -54,6 +54,8 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 
 	if (window_data != NULL)
 	{
+		if (window_data->appmenu_retry_id != 0)
+			g_source_remove(window_data->appmenu_retry_id);
 		if (window_data->menu_model != NULL)
 			g_object_unref(window_data->menu_model);
 
@@ -197,9 +199,41 @@ G_GNUC_INTERNAL WindowData *gtk_window_get_window_data(GtkWindow *window)
 	return window_data;
 }
 
+static void update_window_appmenu(GtkWindow *window, WindowData *data);
+
+static void free_appmenu_retry(gpointer user_data)
+{
+	GWeakRef *window_ref = user_data;
+	g_weak_ref_clear(window_ref);
+	g_free(window_ref);
+}
+
+static gboolean retry_window_appmenu(gpointer user_data)
+{
+	GtkWindow *window = g_weak_ref_get(user_data);
+	if (window != NULL)
+	{
+		WindowData *data = gtk_window_peek_window_data(window);
+		if (data != NULL)
+		{
+			data->appmenu_retry_id = 0;
+			if (!gtk_widget_in_destruction(GTK_WIDGET(window)))
+				update_window_appmenu(window, data);
+		}
+		g_object_unref(window);
+	}
+	return G_SOURCE_REMOVE;
+}
+
 /* Publish the newest surviving export, or withdraw it when the last bar leaves. */
 static void update_window_appmenu(GtkWindow *window, WindowData *data)
 {
+	if (data->appmenu_retry_id != 0)
+	{
+		g_source_remove(data->appmenu_retry_id);
+		data->appmenu_retry_id = 0;
+	}
+	data->published_server = NULL;
 	if (data->kde_appmenu != NULL)
 	{
 		release_appmenu(data->kde_appmenu);
@@ -224,12 +258,19 @@ static void update_window_appmenu(GtkWindow *window, WindowData *data)
 		g_object_get(last->data, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
 		data->kde_appmenu = appmenu_set_address(gdk_window,
 		    g_dbus_connection_get_unique_name(connection), path);
+		if (GDK_IS_X11_WINDOW(gdk_window) || data->kde_appmenu != NULL)
+			data->published_server = last->data;
 		g_free(path);
 		g_object_unref(connection);
 	}
 	else
 	{
 		appmenu_set_address(gdk_window, NULL, NULL);
+		/* Retry transient lookup failures without keeping the window alive. */
+		GWeakRef *window_ref = g_new0(GWeakRef, 1);
+		g_weak_ref_init(window_ref, window);
+		data->appmenu_retry_id = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 1,
+		    retry_window_appmenu, window_ref, free_appmenu_retry);
 	}
 }
 
@@ -308,7 +349,8 @@ static gboolean forward_menu_mnemonic(GtkWidget *widget, gboolean group_cycling,
 		return FALSE;
 	/* The window advertises only its newest server to the global menu viewer. */
 	GSList *published = g_slist_last(window_data->dbusmenu_servers);
-	if (published == NULL || published->data != shell_data->server)
+	if (published == NULL || published->data != shell_data->server ||
+	    window_data->published_server != shell_data->server)
 		return FALSE;
 	GdkDisplay *display = gtk_widget_get_display(widget);
 	if (GDK_IS_WAYLAND_DISPLAY(display) && window_data->kde_appmenu == NULL)

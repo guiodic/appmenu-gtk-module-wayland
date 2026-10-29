@@ -4,6 +4,8 @@
 import argparse
 import os
 import shlex
+import subprocess
+import tempfile
 
 
 def main():
@@ -22,7 +24,13 @@ def main():
 
     # Only the target binary uses the wrapper; D-Bus and Xvfb run on the build host.
     command = [args.dbus_run_session, '--', args.xvfb_run, '-a', *wrapper, args.binary]
-    os.execv(command[0], command)
+    # GTK also reads gtk-modules from settings.ini, independently of GTK_MODULES.
+    with tempfile.TemporaryDirectory(prefix='appmenu-test-') as config:
+        env = os.environ.copy()
+        env.update(GTK_MODULES='', GTK3_MODULES='',
+                   XDG_CONFIG_HOME=os.path.join(config, 'user'),
+                   XDG_CONFIG_DIRS=os.path.join(config, 'system'))
+        return subprocess.call(command, env=env)
 
 
 if __name__ == '__main__':
