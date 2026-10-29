@@ -265,7 +265,7 @@ static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer us
 				for (GSList *iter = data->menus; iter != NULL; iter = iter->next)
 				{
 					MenuShellData *shell = gtk_menu_shell_get_menu_shell_data(iter->data);
-					if (shell->server == NULL)
+					if (shell->server == NULL && shell->pending_root != NULL)
 					{
 						gchar *object_path = g_strdup_printf("/MenuBar/%u/%p", data->window_id, iter->data);
 						shell->server = dbusmenu_server_new(object_path);
@@ -276,15 +276,18 @@ static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer us
 						g_free(object_path);
 					}
 				}
-				MenuShellData *shell = gtk_menu_shell_get_menu_shell_data(last->data);
-				gchar *path = NULL;
-				g_object_get(shell->server, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
-				data->kde_appmenu = appmenu_set_address(gdk_window,
-				    g_dbus_connection_get_unique_name(connection), path);
-				if (GDK_IS_X11_WINDOW(gdk_window) || data->kde_appmenu != NULL)
-					data->published_server = shell->server;
+				GSList *exported = g_slist_last(data->dbusmenu_servers);
+				if (exported != NULL)
+				{
+					gchar *path = NULL;
+					g_object_get(exported->data, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
+					data->kde_appmenu = appmenu_set_address(gdk_window,
+					    g_dbus_connection_get_unique_name(connection), path);
+					if (GDK_IS_X11_WINDOW(gdk_window) || data->kde_appmenu != NULL)
+						data->published_server = exported->data;
+					g_free(path);
+				}
 				data->appmenu_retry_delay = 0;
-				g_free(path);
 			}
 			else
 			{
@@ -711,24 +714,21 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 			if (iter == NULL)
 			{
 				g_debug("gtk_window_connect_menu_shell: connecting new menu shell");
-				window_data->menus = g_slist_append(window_data->menus, g_object_ref(menu_shell));
-
 				DbusmenuMenuitem *item = dbusmenu_gtk_parse_menu_structure(GTK_WIDGET(menu_shell));
 				if (item == NULL)
 				{
 					g_debug("gtk_window_connect_menu_shell: failed to parse menu structure");
+					return;
 				}
-				else
+				window_data->menus = g_slist_append(window_data->menus, g_object_ref(menu_shell));
+				fix_dbusmenu(GTK_WIDGET(menu_shell), NULL);
+				schedule_fix(GTK_WIDGET(menu_shell));
+				if (GTK_IS_MENU_BAR(menu_shell))
 				{
-					fix_dbusmenu(GTK_WIDGET(menu_shell), NULL);
-					schedule_fix(GTK_WIDGET(menu_shell));
-					if (GTK_IS_MENU_BAR(menu_shell))
-					{
-						gtk_container_foreach(GTK_CONTAINER(menu_shell), connect_menu_mnemonic, NULL);
-						if (g_signal_handler_find(menu_shell, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
-						                          on_menu_item_inserted, NULL) == 0)
-							g_signal_connect_after(menu_shell, "insert", G_CALLBACK(on_menu_item_inserted), NULL);
-					}
+					gtk_container_foreach(GTK_CONTAINER(menu_shell), connect_menu_mnemonic, NULL);
+					if (g_signal_handler_find(menu_shell, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
+					                          on_menu_item_inserted, NULL) == 0)
+						g_signal_connect_after(menu_shell, "insert", G_CALLBACK(on_menu_item_inserted), NULL);
 				}
 
 				/* Keep the parsed model until the session bus is available. */

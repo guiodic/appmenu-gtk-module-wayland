@@ -1,5 +1,10 @@
 /* Exercise the private mnemonic handler together with real GTK and D-Bus state. */
 #include <gio/gio.h>
+#include <libdbusmenu-gtk/parser.h>
+
+static GtkWidget *failed_parse_widget;
+static guint parse_failures;
+static DbusmenuMenuitem *test_parse_menu_structure(GtkWidget *widget);
 
 static gboolean fail_session_bus, delay_session_bus;
 static guint bus_requests;
@@ -7,11 +12,22 @@ static GList *delayed_requests;
 static void test_bus_get(GBusType type, GCancellable *cancellable,
                          GAsyncReadyCallback callback, gpointer user_data);
 static GDBusConnection *test_bus_get_finish(GAsyncResult *result, GError **error);
+#define dbusmenu_gtk_parse_menu_structure test_parse_menu_structure
 #define g_bus_get test_bus_get
 #define g_bus_get_finish test_bus_get_finish
 #include "../src/datastructs.c"
+#undef dbusmenu_gtk_parse_menu_structure
 #undef g_bus_get
 #undef g_bus_get_finish
+
+static DbusmenuMenuitem *test_parse_menu_structure(GtkWidget *widget)
+{
+    if (widget == failed_parse_widget) {
+        parse_failures++;
+        return NULL;
+    }
+    return dbusmenu_gtk_parse_menu_structure(widget);
+}
 
 static void test_bus_get(GBusType type, GCancellable *cancellable,
                          GAsyncReadyCallback callback, gpointer user_data)
@@ -360,6 +376,63 @@ static void assert_mnemonic_forwarded(GtkWidget *menubar, gboolean expected)
     g_assert_cmpuint(requests - before, ==, expected ? 1 : 0);
     g_signal_handler_disconnect(exported, handler);
     g_list_free(children);
+}
+
+static GtkWidget *append_unparsed_bar(GtkWidget *box)
+{
+    GtkWidget *menubar = gtk_menu_bar_new();
+    GtkWidget *item = gtk_menu_item_new_with_mnemonic("_Broken");
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), gtk_menu_new());
+    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), item);
+    failed_parse_widget = menubar;
+    gtk_box_pack_start(GTK_BOX(box), menubar, FALSE, FALSE, 0);
+    gtk_widget_show_all(menubar);
+    failed_parse_widget = NULL;
+    return menubar;
+}
+
+static void test_parse_failure(void)
+{
+    name("RequestName", "org.kde.kappmenuview");
+    GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(test_window), box);
+    gtk_widget_show_all(test_window);
+    set_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", "/native/menubar");
+    guint before = bus_requests, failures = parse_failures;
+    GtkWidget *invalid = append_unparsed_bar(box);
+    drain();
+    g_assert_cmpuint(parse_failures, >, failures);
+    WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+    g_assert_null(data->menus);
+    g_assert_null(data->dbusmenu_servers);
+    g_assert_null(data->appmenu_request);
+    g_assert_cmpuint(bus_requests, ==, before);
+    assert_export(test_window, NULL);
+    assert_native_menu_path(test_window, "_GTK_MENUBAR_OBJECT_PATH", "/native/menubar");
+    gtk_widget_destroy(invalid);
+    GtkWidget *valid = append_bar(box);
+    drain();
+    assert_export(test_window, valid);
+    before = bus_requests;
+    invalid = append_unparsed_bar(box);
+    /* Rejection must not withdraw or replace the already published menu. */
+    assert_export(test_window, valid);
+    g_assert_cmpuint(bus_requests, ==, before);
+    g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+    assert_mnemonic_forwarded(valid, TRUE);
+    /* An existing server has a NULL pending_root and must remain usable. */
+    update_window_appmenu(GTK_WINDOW(test_window), data);
+    assert_export(test_window, valid);
+    /* A later explicit connection can retry parsing the rejected bar. */
+    gtk_window_connect_menu_shell(GTK_WINDOW(test_window), GTK_MENU_SHELL(invalid));
+    assert_export(test_window, invalid);
+    assert_mnemonic_forwarded(invalid, TRUE);
+    gtk_widget_destroy(invalid);
+    assert_export(test_window, valid);
+    gtk_widget_destroy(test_window);
+    name("ReleaseName", "org.kde.kappmenuview");
+    drain();
 }
 
 static void test_export_lifecycle(void)
@@ -832,6 +905,7 @@ int main(int argc, char **argv)
     g_test_add_func("/appmenu/mnemonics", test_mnemonics);
     g_test_add_func("/appmenu/viewer-settings", test_viewer_settings);
     g_test_add_func("/appmenu/export-lifecycle", test_export_lifecycle);
+    g_test_add_func("/appmenu/parse-failure", test_parse_failure);
     g_test_add_func("/appmenu/initial-bus-failure", test_initial_bus_failure);
     g_test_add_func("/appmenu/slow-bus-cancellation", test_slow_bus_cancellation);
     g_test_add_func("/appmenu/application-menubar", test_application_menubar);
