@@ -34,7 +34,7 @@ G_GNUC_INTERNAL bool appmenu_mnemonic_receiver_present(void);
 G_GNUC_INTERNAL void gtk_widget_connect_settings(GtkWidget *widget);
 G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget);
 G_GNUC_INTERNAL bool gtk_module_should_run();
-G_GNUC_INTERNAL void watch_registrar_dbus();
+G_GNUC_INTERNAL void watch_registrar_dbus(void);
 G_GNUC_INTERNAL void gtk_module_notify_menu_state(void);
 G_GNUC_INTERNAL void enable_debug();
 

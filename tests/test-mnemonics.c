@@ -603,6 +603,7 @@ static void test_real_initial_bus_failure(void)
     g_assert_nonnull(error);
     g_clear_error(&error);
     ensure_test_hooks();
+    watch_registrar_dbus();
     /* Prove that the fault reaches libdbusmenu, outside our test wrappers. */
     g_test_expect_message("LIBDBUSMENU-GLIB", G_LOG_LEVEL_WARNING, "Unable to get session bus:*");
     DbusmenuServer *probe = dbusmenu_server_new("/InitialFailureProbe");
@@ -613,6 +614,11 @@ static void test_real_initial_bus_failure(void)
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(test_window), box);
     GtkWidget *menubar = append_bar(box);
+    GList *top_items = gtk_container_get_children(GTK_CONTAINER(menubar));
+    GtkWidget *file = top_items->data;
+    gtk_menu_item_set_label(GTK_MENU_ITEM(file), "_File");
+    gtk_menu_item_set_use_underline(GTK_MENU_ITEM(file), TRUE);
+    g_list_free(top_items);
     gtk_widget_show_all(test_window);
     drain();
     /* Module-owned servers must not attempt this unrecoverable acquisition. */
@@ -621,6 +627,8 @@ static void test_real_initial_bus_failure(void)
     g_assert_nonnull(data);
     g_assert_null(data->published_server);
     g_assert_cmpuint(data->appmenu_retry_id, !=, 0);
+    g_assert_false(appmenu_registrar_present());
+    g_assert_false(appmenu_mnemonic_receiver_present());
     /* The pending model must still track changes made before registration. */
     GtkWidget *extra = gtk_menu_item_new_with_mnemonic("_Extra");
     gtk_menu_shell_append(GTK_MENU_SHELL(menubar), extra);
@@ -631,7 +639,29 @@ static void test_real_initial_bus_failure(void)
     bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
     g_assert_no_error(error);
     g_assert_nonnull(bus);
+    name("RequestName", "org.kde.kappmenu");
+    name("RequestName", "org.kde.kappmenuview");
     assert_export(test_window, menubar);
+    gint64 names_deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while ((!appmenu_registrar_present() || !appmenu_mnemonic_receiver_present()) &&
+           g_get_monotonic_time() < names_deadline)
+        drain();
+    g_assert_true(appmenu_registrar_present());
+    g_assert_true(appmenu_mnemonic_receiver_present());
+    DbusmenuMenuitem *exported_file = dbusmenu_gtk_parse_get_cached_item(file);
+    g_assert_nonnull(exported_file);
+    gulong handler = g_signal_connect(exported_file, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER,
+        G_CALLBACK(requested), NULL);
+    guint before = requests;
+    g_assert_true(gtk_window_mnemonic_activate(GTK_WINDOW(test_window), GDK_KEY_f, GDK_MOD1_MASK));
+    g_assert_cmpuint(requests, ==, before + 1);
+    g_signal_handler_disconnect(exported_file, handler);
+    /* An absent name on a healthy bus must remain watched. */
+    name("ReleaseName", "org.kde.kappmenuview");
+    g_assert_false(appmenu_mnemonic_receiver_present());
+    g_assert_true(appmenu_registrar_present());
+    name("RequestName", "org.kde.kappmenuview");
+    g_assert_true(appmenu_mnemonic_receiver_present());
     gchar *service = x11_property(test_window, "_KDE_NET_WM_APPMENU_SERVICE_NAME");
     gchar *path = x11_property(test_window, "_KDE_NET_WM_APPMENU_OBJECT_PATH");
     LayoutReply reply = { 0 };
@@ -654,6 +684,8 @@ static void test_real_initial_bus_failure(void)
     g_free(path);
     g_free(service);
     gtk_widget_destroy(test_window);
+    name("ReleaseName", "org.kde.kappmenuview");
+    name("ReleaseName", "org.kde.kappmenu");
     drain();
     g_object_unref(bus);
 }

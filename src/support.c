@@ -44,6 +44,9 @@ static const char *const WATCHED_NAMES[] = {
 enum { REGISTRAR_COUNT = 4, KDE_VIEWER_INDEX = REGISTRAR_COUNT };
 static uint watcher_ids[G_N_ELEMENTS(WATCHED_NAMES)] = { 0 };
 static bool bus_name_present[G_N_ELEMENTS(WATCHED_NAMES)] = { false };
+static bool watcher_request_pending;
+static guint watcher_retry_id;
+static guint watcher_retry_delay;
 #endif
 
 static bool is_true(const char *value)
@@ -175,6 +178,20 @@ G_GNUC_INTERNAL void gtk_module_notify_menu_state(void)
 	g_list_free(windows);
 }
 
+static void schedule_watcher_retry(void);
+
+static void clear_name_watchers(void)
+{
+	for (guint i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
+	{
+		if (watcher_ids[i] != 0)
+			g_bus_unwatch_name(watcher_ids[i]);
+		watcher_ids[i] = 0;
+		bus_name_present[i] = false;
+	}
+	gtk_module_notify_menu_state();
+}
+
 static void on_name_appeared(GDBusConnection *connection, const char *name, const char *name_owner,
                              gpointer user_data)
 {
@@ -188,6 +205,12 @@ static void on_name_appeared(GDBusConnection *connection, const char *name, cons
 
 static void on_name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
 {
+	if (connection == NULL || g_dbus_connection_is_closed(connection))
+	{
+		clear_name_watchers();
+		schedule_watcher_retry();
+		return;
+	}
 	g_debug("Name %s does not exist on the session bus", name);
 
 	int index = GPOINTER_TO_INT(user_data);
@@ -195,74 +218,56 @@ static void on_name_vanished(GDBusConnection *connection, const char *name, gpoi
 	if (index < REGISTRAR_COUNT)
 		gtk_module_notify_menu_state();
 }
+
+static gboolean retry_name_watchers(gpointer unused)
+{
+	watcher_retry_id = 0;
+	watch_registrar_dbus();
+	return G_SOURCE_REMOVE;
+}
+
+static void schedule_watcher_retry(void)
+{
+	if (watcher_retry_id == 0)
+	{
+		guint delay = MAX(watcher_retry_delay, 1);
+		watcher_retry_delay = MIN(delay * 2, 30);
+		watcher_retry_id = g_timeout_add_seconds(delay, retry_name_watchers, NULL);
+	}
+}
+
+static void watcher_bus_ready(GObject *source, GAsyncResult *result, gpointer unused)
+{
+	GError *error = NULL;
+	GDBusConnection *connection = g_bus_get_finish(result, &error);
+	watcher_request_pending = false;
+	if (connection == NULL || g_dbus_connection_is_closed(connection))
+	{
+		g_debug("Unable to connect appmenu name watchers: %s",
+		        error != NULL ? error->message : "connection closed");
+		schedule_watcher_retry();
+	}
+	else
+	{
+		watcher_retry_delay = 0;
+		for (guint i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
+			watcher_ids[i] = g_bus_watch_name_on_connection(connection, WATCHED_NAMES[i],
+			    G_BUS_NAME_WATCHER_FLAGS_NONE, on_name_appeared, on_name_vanished,
+			    GUINT_TO_POINTER(i), NULL);
+	}
+	g_clear_object(&connection);
+	g_clear_error(&error);
+}
 #endif
 
-G_GNUC_INTERNAL void watch_registrar_dbus()
+G_GNUC_INTERNAL void watch_registrar_dbus(void)
 {
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-	if (watcher_ids[0] == 0)
-	{
-		for (int i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
-			bus_name_present[i] = false;
-
-		GError *error               = NULL;
-		GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
-		if (connection == NULL)
-		{
-			g_debug("Unable to connect to dbus: %s", error->message);
-			g_error_free(error);
-		}
-		else
-		{
-			GVariant *ret = g_dbus_connection_call_sync(connection,
-			                                            "org.freedesktop.DBus",
-			                                            "/org/freedesktop/DBus",
-			                                            "org.freedesktop.DBus",
-			                                            "ListNames",
-			                                            NULL,
-			                                            G_VARIANT_TYPE("(as)"),
-			                                            G_DBUS_CALL_FLAGS_NONE,
-			                                            -1,
-			                                            NULL,
-			                                            &error);
-			if (ret == NULL)
-			{
-				g_debug("Unable to query dbus for ListNames: %s", error->message);
-				g_error_free(error);
-			}
-			else
-			{
-				GVariant *names = g_variant_get_child_value(ret, 0);
-				GVariantIter iter;
-				char *name;
-				g_variant_iter_init(&iter, names);
-				while (g_variant_iter_loop(&iter, "&s", &name))
-				{
-					for (int i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
-					{
-						if (g_str_equal(name, WATCHED_NAMES[i]))
-						{
-							bus_name_present[i] = true;
-						}
-					}
-				}
-				g_variant_unref(names);
-				g_variant_unref(ret);
-			}
-			g_object_unref(connection);
-		}
-
-		for (int i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
-		{
-			watcher_ids[i] = g_bus_watch_name(G_BUS_TYPE_SESSION,
-			                                  WATCHED_NAMES[i],
-			                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
-			                                  on_name_appeared,
-			                                  on_name_vanished,
-			                                  GINT_TO_POINTER(i),
-			                                  NULL);
-		}
-	}
-	gtk_module_notify_menu_state();
+	/* Register only after acquiring a connection: a failed g_bus_watch_name()
+	 * lookup can otherwise leave nonzero IDs that never start watching. */
+	if (watcher_ids[0] != 0 || watcher_request_pending || watcher_retry_id != 0)
+		return;
+	watcher_request_pending = true;
+	g_bus_get(G_BUS_TYPE_SESSION, NULL, watcher_bus_ready, NULL);
 #endif
 }

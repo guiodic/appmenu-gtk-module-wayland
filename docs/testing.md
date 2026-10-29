@@ -46,6 +46,11 @@ session connection is available before constructing DbusmenuServer, because
 libdbusmenu does not retry its own failed initial connection. Recovery from a
 complete session-bus restart is not supported by this mechanism.
 
+Registrar and viewer name watches also acquire the bus asynchronously and retry
+connection failures with bounded backoff. A lost connection clears the old watches
+before registering new ones. A missing service name on a healthy connection is
+handled by the existing watch, without reconnecting.
+
 The module leaves `gtk-shell-shows-menubar` unchanged. When GTK omits the
 GtkApplicationWindow menubar because that setting is true, a private offscreen
 bar retains GTK mnemonic registration and `app.`/`win.` action lookup.
