@@ -658,9 +658,17 @@ static void test_real_initial_bus_failure(void)
     g_signal_handler_disconnect(exported_file, handler);
     /* An absent name on a healthy bus must remain watched. */
     name("ReleaseName", "org.kde.kappmenuview");
+    names_deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while (appmenu_mnemonic_receiver_present() &&
+           g_get_monotonic_time() < names_deadline)
+        drain();
     g_assert_false(appmenu_mnemonic_receiver_present());
     g_assert_true(appmenu_registrar_present());
     name("RequestName", "org.kde.kappmenuview");
+    names_deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while (!appmenu_mnemonic_receiver_present() &&
+           g_get_monotonic_time() < names_deadline)
+        drain();
     g_assert_true(appmenu_mnemonic_receiver_present());
     gchar *service = x11_property(test_window, "_KDE_NET_WM_APPMENU_SERVICE_NAME");
     gchar *path = x11_property(test_window, "_KDE_NET_WM_APPMENU_OBJECT_PATH");
