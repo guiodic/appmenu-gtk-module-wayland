@@ -39,7 +39,8 @@ def main():
         with open(os.path.join(gtk_config, 'settings.ini'), 'w', encoding='ascii') as settings:
             settings.write('[Settings]\ngtk-modules=\n')
         env = os.environ.copy()
-        env.update(GTK_MODULES='', GTK3_MODULES='',
+        # Theme settings can override gtk-modules too; use GTK's built-in theme.
+        env.update(GTK_MODULES='', GTK3_MODULES='', GTK_THEME='Adwaita',
                    XDG_CONFIG_HOME=os.path.join(config, 'user'),
                    XDG_CONFIG_DIRS=system_config)
         result = subprocess.call(command, env=env)
