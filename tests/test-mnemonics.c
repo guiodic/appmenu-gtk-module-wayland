@@ -1,17 +1,41 @@
 /* Exercise the private mnemonic handler together with real GTK and D-Bus state. */
 #include <gio/gio.h>
 
-static gboolean fail_session_bus;
-static GDBusConnection *test_bus_get_sync(GBusType type, GCancellable *cancellable, GError **error);
-/* Inject only the failure in datastructs.c; other module code uses the real bus. */
-#define g_bus_get_sync test_bus_get_sync
+static gboolean fail_session_bus, delay_session_bus;
+static guint bus_requests;
+static GList *delayed_requests;
+static void test_bus_get(GBusType type, GCancellable *cancellable,
+                         GAsyncReadyCallback callback, gpointer user_data);
+static GDBusConnection *test_bus_get_finish(GAsyncResult *result, GError **error);
+#define g_bus_get test_bus_get
+#define g_bus_get_finish test_bus_get_finish
 #include "../src/datastructs.c"
-#undef g_bus_get_sync
+#undef g_bus_get
+#undef g_bus_get_finish
 
-static GDBusConnection *test_bus_get_sync(GBusType type, GCancellable *cancellable, GError **error)
+static void test_bus_get(GBusType type, GCancellable *cancellable,
+                         GAsyncReadyCallback callback, gpointer user_data)
 {
-    if (fail_session_bus) return NULL;
-    return g_bus_get_sync(type, cancellable, error);
+    bus_requests++;
+    if (fail_session_bus || delay_session_bus) {
+        GTask *task = g_task_new(NULL, cancellable, callback, user_data);
+        g_task_set_source_tag(task, test_bus_get);
+        if (delay_session_bus) {
+            delayed_requests = g_list_append(delayed_requests, task);
+        } else {
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "Injected bus failure");
+            g_object_unref(task);
+        }
+    } else {
+        g_bus_get(type, cancellable, callback, user_data);
+    }
+}
+
+static GDBusConnection *test_bus_get_finish(GAsyncResult *result, GError **error)
+{
+    if (g_async_result_is_tagged(result, test_bus_get))
+        return g_task_propagate_pointer(G_TASK(result), error);
+    return g_bus_get_finish(result, error);
 }
 #include "../src/hijack.h"
 
@@ -219,6 +243,12 @@ static gchar *x11_property(GtkWidget *widget, const char *property)
 
 static void assert_export(GtkWidget *widget, GtkWidget *menubar)
 {
+    if (menubar) {
+        WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(widget));
+        MenuShellData *shell = gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar));
+        for (guint attempt = 0; attempt < 50 && data->published_server != shell->server; attempt++)
+            drain();
+    }
     gchar *service = x11_property(widget, "_KDE_NET_WM_APPMENU_SERVICE_NAME");
     gchar *path = x11_property(widget, "_KDE_NET_WM_APPMENU_OBJECT_PATH");
     if (menubar) {
@@ -310,30 +340,44 @@ static void test_export_lifecycle(void)
     gtk_widget_realize(fresh);
     assert_export(test_window, fresh);
     assert_mnemonic_forwarded(fresh, TRUE);
-    /* A failed bus lookup must withdraw a previously advertised X11 export. */
+    /* Async failures withdraw the export, retry, and back off without blocking. */
     WindowData *fresh_data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
     fail_session_bus = TRUE;
     update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    g_assert_nonnull(fresh_data->appmenu_request);
     assert_export(test_window, NULL);
     assert_mnemonic_forwarded(fresh, FALSE);
+    drain();
     g_assert_cmpuint(fresh_data->appmenu_retry_id, !=, 0);
-    /* A second failure replaces, rather than accumulates, the pending retry. */
+    g_assert_cmpuint(fresh_data->appmenu_retry_delay, ==, 2);
     guint previous_retry = fresh_data->appmenu_retry_id;
+    /* Force the next attempt; the GTK loop must continue processing. */
     update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
     g_assert_null(g_main_context_find_source_by_id(NULL, previous_retry));
-    fail_session_bus = FALSE;
-    /* Recover without any menu lifecycle event or manual republishing. */
-    for (guint attempt = 0; attempt < 40 && fresh_data->published_server == NULL; attempt++)
+    drain();
+    g_assert_cmpuint(fresh_data->appmenu_retry_delay, ==, 4);
+    for (guint attempt = 0; attempt < 5; attempt++) {
+        update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
         drain();
+    }
+    g_assert_cmpuint(fresh_data->appmenu_retry_delay, ==, 30);
+    /* Return to a short retry to keep this integration test bounded. */
+    fresh_data->appmenu_retry_delay = 1;
+    update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    drain();
+    fail_session_bus = FALSE;
     assert_export(test_window, fresh);
     assert_mnemonic_forwarded(fresh, TRUE);
     g_assert_cmpuint(fresh_data->appmenu_retry_id, ==, 0);
+    g_assert_cmpuint(fresh_data->appmenu_retry_delay, ==, 0);
     fail_session_bus = TRUE;
     update_window_appmenu(GTK_WINDOW(test_window), fresh_data);
+    drain();
     guint pending_retry = fresh_data->appmenu_retry_id;
     gtk_widget_unrealize(fresh);
     g_assert_null(g_main_context_find_source_by_id(NULL, pending_retry));
     gtk_widget_realize(fresh);
+    drain();
     pending_retry = fresh_data->appmenu_retry_id;
     g_assert_cmpuint(pending_retry, !=, 0);
     gtk_widget_destroy(test_window);
@@ -341,6 +385,149 @@ static void test_export_lifecycle(void)
     drain();
     g_assert_null(g_main_context_find_source_by_id(NULL, pending_retry));
     name("ReleaseName", "org.kde.kappmenuview");
+}
+
+static void complete_delayed_requests(void)
+{
+    GList *requests = delayed_requests;
+    delayed_requests = NULL;
+    for (GList *iter = requests; iter; iter = iter->next) {
+        g_task_return_pointer(iter->data, g_object_ref(bus), g_object_unref);
+        g_object_unref(iter->data);
+    }
+    g_list_free(requests);
+    drain();
+}
+
+static void test_initial_bus_failure(void)
+{
+    fail_session_bus = TRUE;
+    GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(test_window), box);
+    GtkWidget *menubar = append_bar(box);
+    gtk_widget_show_all(test_window);
+    WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+    g_assert_nonnull(data);
+    g_assert_false(data->x11_bus_initialized);
+    g_assert_nonnull(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->server);
+    drain();
+    assert_export(test_window, NULL);
+    g_assert_cmpuint(data->appmenu_retry_id, !=, 0);
+    fail_session_bus = FALSE;
+    /* No realize, connect, or explicit update after the bus becomes available. */
+    assert_export(test_window, menubar);
+    g_assert_true(data->x11_bus_initialized);
+    gtk_widget_destroy(test_window);
+    drain();
+}
+
+static gboolean heartbeat(gpointer data)
+{
+    *(gboolean *)data = TRUE;
+    return G_SOURCE_REMOVE;
+}
+
+static void test_slow_bus_cancellation(void)
+{
+    delay_session_bus = TRUE;
+    guint before = bus_requests;
+    GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(test_window), box);
+    GtkWidget *first = append_bar(box);
+    gtk_widget_show_all(test_window);
+    WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+    g_assert_cmpuint(bus_requests, ==, before + 1);
+    GCancellable *original = g_object_ref(data->appmenu_request);
+    gboolean ticked = FALSE;
+    g_idle_add(heartbeat, &ticked);
+    drain();
+    g_assert_true(ticked);
+    g_assert_null(data->published_server);
+    /* A slow reply must not trigger overlapping timer-based requests. */
+    g_assert_cmpuint(bus_requests, ==, before + 1);
+    g_assert_cmpuint(data->appmenu_retry_id, ==, 0);
+    GtkWidget *second = append_bar(box);
+    g_assert_true(g_cancellable_is_cancelled(original));
+    g_object_unref(original);
+    gtk_widget_destroy(second);
+    delay_session_bus = FALSE;
+    complete_delayed_requests();
+    assert_export(test_window, first);
+    g_assert_cmpuint(data->appmenu_retry_id, ==, 0);
+    /* A reply after destruction must neither retain nor resurrect the window. */
+    delay_session_bus = TRUE;
+    update_window_appmenu(GTK_WINDOW(test_window), data);
+    GCancellable *pending = g_object_ref(data->appmenu_request);
+    GtkWidget *weak_window = test_window;
+    g_object_add_weak_pointer(G_OBJECT(test_window), (gpointer *)&weak_window);
+    gtk_widget_destroy(test_window);
+    g_assert_true(g_cancellable_is_cancelled(pending));
+    g_object_unref(pending);
+    g_assert_null(weak_window);
+    delay_session_bus = FALSE;
+    complete_delayed_requests();
+    g_assert_null(delayed_requests);
+}
+
+static void find_menubar(GtkWidget *widget, gpointer data)
+{
+    if (GTK_IS_MENU_BAR(widget))
+        *(GtkWidget **)data = widget;
+    else if (GTK_IS_CONTAINER(widget))
+        gtk_container_forall(GTK_CONTAINER(widget), find_menubar, data);
+}
+
+static void test_application_menubar(void)
+{
+    GtkSettings *settings = gtk_settings_get_default();
+    g_object_set(settings, "gtk-shell-shows-menubar", FALSE, NULL);
+    name("RequestName", "org.kde.kappmenu");
+    name("RequestName", "org.kde.kappmenuview");
+    gboolean shell_setting = TRUE;
+    g_object_get(settings, "gtk-shell-shows-menubar", &shell_setting, NULL);
+    g_assert_false(shell_setting);
+    GtkApplication *app = gtk_application_new("org.example.AppmenuRegression", G_APPLICATION_NON_UNIQUE);
+    GError *error = NULL;
+    g_assert_true(g_application_register(G_APPLICATION(app), NULL, &error));
+    g_assert_no_error(error);
+    GSimpleAction *open = g_simple_action_new("open", NULL);
+    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(open));
+    g_object_unref(open);
+    GMenu *model = g_menu_new(), *submenu = g_menu_new();
+    g_menu_append(submenu, "Open", "app.open");
+    g_menu_append_submenu(model, "_File", G_MENU_MODEL(submenu));
+    gtk_application_set_menubar(app, G_MENU_MODEL(model));
+    GtkWidget *test_window = gtk_application_window_new(app);
+    gtk_container_add(GTK_CONTAINER(test_window), gtk_label_new("Application menu regression"));
+    gtk_widget_show_all(test_window);
+    drain();
+    GtkWidget *menubar = NULL;
+    find_menubar(test_window, &menubar);
+    g_assert_nonnull(menubar);
+    assert_export(test_window, menubar);
+    GList *children = gtk_container_get_children(GTK_CONTAINER(menubar));
+    g_assert_nonnull(children);
+    DbusmenuMenuitem *item = dbusmenu_gtk_parse_get_cached_item(children->data);
+    guint before = requests;
+    gulong handler = g_signal_connect(item, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER,
+        G_CALLBACK(requested), NULL);
+    g_assert_true(gtk_window_mnemonic_activate(GTK_WINDOW(test_window), GDK_KEY_f, GDK_MOD1_MASK));
+    g_assert_cmpuint(requests, ==, before + 1);
+    g_signal_handler_disconnect(item, handler);
+    g_list_free(children);
+    g_assert_cmpint(gtk_widget_get_allocated_height(menubar), <=, 1);
+    name("ReleaseName", "org.kde.kappmenuview");
+    name("ReleaseName", "org.kde.kappmenu");
+    drain();
+    g_assert_false(gtk_widget_shell_shows_menubar(menubar));
+    g_assert_cmpint(gtk_widget_get_allocated_height(menubar), >, 1);
+    gtk_widget_destroy(test_window);
+    g_object_unref(submenu);
+    g_object_unref(model);
+    g_object_unref(app);
+    drain();
 }
 
 int main(int argc, char **argv)
@@ -375,6 +562,9 @@ int main(int argc, char **argv)
     g_test_add_func("/appmenu/mnemonics", test_mnemonics);
     g_test_add_func("/appmenu/viewer-settings", test_viewer_settings);
     g_test_add_func("/appmenu/export-lifecycle", test_export_lifecycle);
+    g_test_add_func("/appmenu/initial-bus-failure", test_initial_bus_failure);
+    g_test_add_func("/appmenu/slow-bus-cancellation", test_slow_bus_cancellation);
+    g_test_add_func("/appmenu/application-menubar", test_application_menubar);
     int result = g_test_run();
     gtk_widget_destroy(window);
     g_object_unref(bus);

@@ -155,36 +155,29 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 }
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
+static void resize_menu_bar(GtkWidget *widget, gpointer user_data)
 {
-	GtkSettings *settings = gtk_settings_get_default();
-
-	if (settings == NULL)
-		return false;
-
-#ifdef GDK_WINDOWING_WAYLAND
-	GdkDisplay *display = gdk_display_get_default();
-	if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
-		return true;
-#endif
-
-	GParamSpec *pspec =
-	    g_object_class_find_property(G_OBJECT_GET_CLASS(settings), "gtk-shell-shows-menubar");
-
-	if (pspec && pspec->value_type == G_TYPE_BOOLEAN)
-		g_object_set(settings, "gtk-shell-shows-menubar", shows, NULL);
-
-	return true;
+	(void)user_data;
+	if (GTK_IS_MENU_BAR(widget))
+		gtk_widget_queue_resize(widget);
+	else if (GTK_IS_CONTAINER(widget))
+		gtk_container_forall(GTK_CONTAINER(widget), resize_menu_bar, NULL);
 }
 
-static void update_registrar_state()
+G_GNUC_INTERNAL void gtk_module_notify_menu_state(void)
 {
-	bool any_present = appmenu_registrar_present();
-#ifdef GDK_WINDOWING_WAYLAND
-	if (org_kde_kwin_appmenu_manager != NULL)
-		any_present = true;
-#endif
-	set_gtk_shell_shows_menubar(any_present);
+	/* Keep GTK's own shell setting intact. GtkApplicationWindow otherwise
+	 * stops constructing its menubar, removing its mnemonic targets as well.
+	 * Our size hooks hide bars using the module's registrar/Wayland state. */
+	GList *windows = gtk_window_list_toplevels();
+	for (GList *iter = windows; iter != NULL; iter = iter->next)
+		resize_menu_bar(iter->data, NULL);
+	g_list_free(windows);
+}
+
+static void update_registrar_state(void)
+{
+	gtk_module_notify_menu_state();
 }
 
 static void on_name_appeared(GDBusConnection *connection, const char *name, const char *name_owner,

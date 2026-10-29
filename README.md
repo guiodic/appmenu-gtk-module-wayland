@@ -152,3 +152,21 @@ and Xwayland applications; builds require both backend development dependencies.
 Transient session-bus lookup failures withdraw the menu address and retry while
 the window and menu remain alive. This does not promise recovery from a complete
 session-bus restart, which may terminate GTK applications and invalidate exports.
+
+Menu publication, including initial Xwayland bus-dependent setup, obtains the
+session bus asynchronously. Failed lookups retry after 1, 2, 4, 8, 16 and at most
+30 seconds while the menu remains alive. Replacing/unrealizing a menu or closing
+its window cancels pending requests and retries; late replies cannot republish
+an obsolete export. The backoff resets after a successful lookup.
+
+When CMake cross-compiles the tests, set `CMAKE_CROSSCOMPILING_EMULATOR` to a
+semicolon-separated command and argument list. The runner applies it only to
+the target test binary; Python, D-Bus and Xvfb run on the build machine. Without
+an emulator CTest reports the test as skipped (exit status 77). Explicit CMake
+wrapper arguments take precedence over the Meson wrapper environment variable.
+
+The module leaves GTK's `gtk-shell-shows-menubar` setting unchanged. In
+particular, GtkApplicationWindow must retain its automatic menubar and mnemonic
+targets even when the module hides that bar locally and exports it to Material.
+Registrar changes queue a new layout of the existing bars instead of changing
+that global GTK setting.

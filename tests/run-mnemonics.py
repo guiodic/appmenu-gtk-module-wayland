@@ -11,13 +11,19 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cross-build', action='store_true')
+    parser.add_argument('--exe-wrapper', action='append', default=None)
     parser.add_argument('--can-run-host-binaries', choices=('yes', 'no'), required=True)
     parser.add_argument('dbus_run_session')
     parser.add_argument('xvfb_run')
     parser.add_argument('binary')
     args = parser.parse_args()
 
-    wrapper = shlex.split(os.environ.get('MESON_EXE_WRAPPER', '')) if args.cross_build else []
+    if args.exe_wrapper is not None:
+        wrapper = args.exe_wrapper
+    elif args.cross_build:
+        wrapper = shlex.split(os.environ.get('MESON_EXE_WRAPPER', ''))
+    else:
+        wrapper = []
     if not wrapper and args.can_run_host_binaries == 'no':
         print('SKIP: target binaries cannot run without an exe_wrapper', flush=True)
         return 77

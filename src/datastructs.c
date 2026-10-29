@@ -56,6 +56,9 @@ G_GNUC_INTERNAL void window_data_free(gpointer data)
 	{
 		if (window_data->appmenu_retry_id != 0)
 			g_source_remove(window_data->appmenu_retry_id);
+		if (window_data->appmenu_request != NULL)
+			g_cancellable_cancel(window_data->appmenu_request);
+		g_clear_object(&window_data->appmenu_request);
 		if (window_data->menu_model != NULL)
 			g_object_unref(window_data->menu_model);
 
@@ -225,7 +228,61 @@ static gboolean retry_window_appmenu(gpointer user_data)
 	return G_SOURCE_REMOVE;
 }
 
-/* Publish the newest surviving export, or withdraw it when the last bar leaves. */
+typedef struct
+{
+	GWeakRef window;
+	GCancellable *cancellable;
+} AppmenuRequest;
+
+static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+	AppmenuRequest *request = user_data;
+	GError *error = NULL;
+	GDBusConnection *connection = g_bus_get_finish(result, &error);
+	GtkWindow *window = g_weak_ref_get(&request->window);
+	WindowData *data = window != NULL ? gtk_window_peek_window_data(window) : NULL;
+	/* A menu replacement or unrealize may have superseded this request. */
+	if (data != NULL && data->appmenu_request == request->cancellable)
+	{
+		g_clear_object(&data->appmenu_request);
+		GdkWindow *gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
+		GSList *last = g_slist_last(data->dbusmenu_servers);
+		if (gdk_window != NULL && last != NULL &&
+		    !gtk_widget_in_destruction(GTK_WIDGET(window)))
+		{
+			if (connection != NULL)
+			{
+				if (GDK_IS_X11_WINDOW(gdk_window))
+					gtk_x11_window_init_bus_properties(window, data, connection);
+				gchar *path = NULL;
+				g_object_get(last->data, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
+				data->kde_appmenu = appmenu_set_address(gdk_window,
+				    g_dbus_connection_get_unique_name(connection), path);
+				if (GDK_IS_X11_WINDOW(gdk_window) || data->kde_appmenu != NULL)
+					data->published_server = last->data;
+				data->appmenu_retry_delay = 0;
+				g_free(path);
+			}
+			else
+			{
+				guint delay = MAX(data->appmenu_retry_delay, 1);
+				data->appmenu_retry_delay = MIN(delay * 2, 30);
+				GWeakRef *window_ref = g_new0(GWeakRef, 1);
+				g_weak_ref_init(window_ref, window);
+				data->appmenu_retry_id = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT,
+				    delay, retry_window_appmenu, window_ref, free_appmenu_retry);
+			}
+		}
+	}
+	g_clear_object(&connection);
+	g_clear_error(&error);
+	g_clear_object(&window);
+	g_weak_ref_clear(&request->window);
+	g_object_unref(request->cancellable);
+	g_free(request);
+}
+
+/* Publish asynchronously; neither initial setup nor retries block the GTK loop. */
 static void update_window_appmenu(GtkWindow *window, WindowData *data)
 {
 	if (data->appmenu_retry_id != 0)
@@ -233,45 +290,27 @@ static void update_window_appmenu(GtkWindow *window, WindowData *data)
 		g_source_remove(data->appmenu_retry_id);
 		data->appmenu_retry_id = 0;
 	}
+	if (data->appmenu_request != NULL)
+		g_cancellable_cancel(data->appmenu_request);
+	g_clear_object(&data->appmenu_request);
 	data->published_server = NULL;
 	if (data->kde_appmenu != NULL)
 	{
 		release_appmenu(data->kde_appmenu);
 		data->kde_appmenu = NULL;
 	}
-
 	GdkWindow *gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
 	if (gdk_window == NULL)
 		return;
-
-	GSList *last = g_slist_last(data->dbusmenu_servers);
-	if (last == NULL)
-	{
-		appmenu_set_address(gdk_window, NULL, NULL);
+	appmenu_set_address(gdk_window, NULL, NULL);
+	if (data->dbusmenu_servers == NULL)
 		return;
-	}
 
-	GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-	if (connection != NULL)
-	{
-		gchar *path = NULL;
-		g_object_get(last->data, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
-		data->kde_appmenu = appmenu_set_address(gdk_window,
-		    g_dbus_connection_get_unique_name(connection), path);
-		if (GDK_IS_X11_WINDOW(gdk_window) || data->kde_appmenu != NULL)
-			data->published_server = last->data;
-		g_free(path);
-		g_object_unref(connection);
-	}
-	else
-	{
-		appmenu_set_address(gdk_window, NULL, NULL);
-		/* Retry transient lookup failures without keeping the window alive. */
-		GWeakRef *window_ref = g_new0(GWeakRef, 1);
-		g_weak_ref_init(window_ref, window);
-		data->appmenu_retry_id = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 1,
-		    retry_window_appmenu, window_ref, free_appmenu_retry);
-	}
+	AppmenuRequest *request = g_new0(AppmenuRequest, 1);
+	g_weak_ref_init(&request->window, window);
+	data->appmenu_request = g_cancellable_new();
+	request->cancellable = g_object_ref(data->appmenu_request);
+	g_bus_get(G_BUS_TYPE_SESSION, data->appmenu_request, appmenu_bus_ready, request);
 }
 
 G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenuShell *menu_shell)
