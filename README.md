@@ -165,8 +165,24 @@ the target test binary; Python, D-Bus and Xvfb run on the build machine. Without
 an emulator CTest reports the test as skipped (exit status 77). Explicit CMake
 wrapper arguments take precedence over the Meson wrapper environment variable.
 
-The module leaves GTK's `gtk-shell-shows-menubar` setting unchanged. In
-particular, GtkApplicationWindow must retain its automatic menubar and mnemonic
-targets even when the module hides that bar locally and exports it to Material.
-Registrar changes queue a new layout of the existing bars instead of changing
-that global GTK setting.
+The module leaves GTK's `gtk-shell-shows-menubar` setting unchanged. When it
+is false, GtkApplicationWindow supplies its normal menubar. When the desktop
+sets it to true (as Plasma's GMenu proxy does), the module creates a private,
+offscreen menubar from the application's GMenu models. It retains GTK's mnemonic
+registration and `app.`/`win.` action lookup without adding a visible bar.
+Model replacement, setting changes and window unrealize clean up the private
+bar; registrar changes only request a new layout.
+
+For Xwayland windows whose menubar the module exports, native GTK menu discovery
+paths are withdrawn before the window is mapped. Plasma's `gmenudbusmenuproxy`
+then skips those windows, including when the proxy starts later. Material and
+the mnemonic handler use the same DBusMenu export and item IDs. GTK action
+metadata is left intact; windows without an exported menubar keep their native
+menu metadata. The module does not advertise fabricated GTK menu/action paths
+for applications without a native GMenu export.
+
+The regression suite exercises both shell-setting values, exported action
+activation, model replacement, settings changes and window unrealize/realize.
+For desktop integration tests, leave `gmenudbusmenuproxy` enabled, try both proxy
+startup orders, and check the window's `_KDE_NET_WM_APPMENU_SERVICE_NAME` with
+`xprop` alongside Alt+mnemonic: seeing a menu alone does not verify forwarding.

@@ -163,7 +163,6 @@ G_GNUC_INTERNAL void gtk_x11_window_init_bus_properties(GtkWindow *window,
 	if (window_data->x11_bus_initialized)
 		return;
 	window_data->x11_bus_initialized = TRUE;
-	char *object_path        = g_strdup_printf(OBJECT_PATH "/%u", window_data->window_id);
 	char *old_unique_bus_name =
 	    gtk_widget_get_x11_property_string(GTK_WIDGET(window), _GTK_UNIQUE_BUS_NAME);
 	char *old_unity_object_path =
@@ -195,26 +194,12 @@ G_GNUC_INTERNAL void gtk_x11_window_init_bus_properties(GtkWindow *window,
 		                      G_MENU_MODEL(old_menu_model));
 	}
 
-	if (old_unique_bus_name == NULL)
-		gtk_widget_set_x11_property_string(GTK_WIDGET(window),
-		                                   _GTK_UNIQUE_BUS_NAME,
-		                                   g_dbus_connection_get_unique_name(
-		                                       session));
-
-	if (old_unity_object_path == NULL)
-		gtk_widget_set_x11_property_string(GTK_WIDGET(window),
-		                                   _UNITY_OBJECT_PATH,
-		                                   object_path);
-
-	if (old_menubar_object_path == NULL)
-		gtk_widget_set_x11_property_string(GTK_WIDGET(window),
-		                                   _GTK_MENUBAR_OBJECT_PATH,
-		                                   object_path);
+	/* This module exports DBusMenu, not org.gtk.Menus/Actions. Do not
+	 * fabricate GTK object paths: Plasma's GMenu proxy would import them. */
 
 	g_free(old_menubar_object_path);
 	g_free(old_unity_object_path);
 	g_free(old_unique_bus_name);
-	g_free(object_path);
 
 	if (old_menu_model != NULL)
 		g_object_unref(old_menu_model);
@@ -222,6 +207,20 @@ G_GNUC_INTERNAL void gtk_x11_window_init_bus_properties(GtkWindow *window,
 	if (old_action_group != NULL)
 		g_object_unref(old_action_group);
 
+}
+
+G_GNUC_INTERNAL void gtk_x11_window_use_dbusmenu(GtkWindow *window)
+{
+	/* Initially called before mapping, after GTK publishes its metadata.
+	 * Advertise one menu protocol for this window. Plasma's GMenu proxy
+	 * discovers windows on map (and on proxy startup), so it must not build
+	 * a competing export with unrelated menu IDs. Leave action metadata alone. */
+	WindowData *data = gtk_window_peek_window_data(window);
+	if (data != NULL && data->dbusmenu_servers != NULL)
+	{
+		gtk_widget_set_x11_property_string(GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH, NULL);
+		gtk_widget_set_x11_property_string(GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH", NULL);
+	}
 }
 
 #endif

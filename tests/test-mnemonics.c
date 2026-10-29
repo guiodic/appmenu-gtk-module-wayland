@@ -479,55 +479,160 @@ static void find_menubar(GtkWidget *widget, gpointer data)
         gtk_container_forall(GTK_CONTAINER(widget), find_menubar, data);
 }
 
+static void action_invoked(GSimpleAction *action, GVariant *parameter, gpointer data)
+{
+    (*(guint *)data)++;
+}
+
 static void test_application_menubar(void)
 {
-    GtkSettings *settings = gtk_settings_get_default();
-    g_object_set(settings, "gtk-shell-shows-menubar", FALSE, NULL);
-    name("RequestName", "org.kde.kappmenu");
-    name("RequestName", "org.kde.kappmenuview");
-    gboolean shell_setting = TRUE;
-    g_object_get(settings, "gtk-shell-shows-menubar", &shell_setting, NULL);
-    g_assert_false(shell_setting);
     GtkApplication *app = gtk_application_new("org.example.AppmenuRegression", G_APPLICATION_NON_UNIQUE);
     GError *error = NULL;
     g_assert_true(g_application_register(G_APPLICATION(app), NULL, &error));
     g_assert_no_error(error);
-    GSimpleAction *open = g_simple_action_new("open", NULL);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(open));
-    g_object_unref(open);
-    GMenu *model = g_menu_new(), *submenu = g_menu_new();
-    g_menu_append(submenu, "Open", "app.open");
-    g_menu_append_submenu(model, "_File", G_MENU_MODEL(submenu));
-    gtk_application_set_menubar(app, G_MENU_MODEL(model));
-    GtkWidget *test_window = gtk_application_window_new(app);
-    gtk_container_add(GTK_CONTAINER(test_window), gtk_label_new("Application menu regression"));
-    gtk_widget_show_all(test_window);
-    drain();
-    GtkWidget *menubar = NULL;
-    find_menubar(test_window, &menubar);
-    g_assert_nonnull(menubar);
-    assert_export(test_window, menubar);
-    GList *children = gtk_container_get_children(GTK_CONTAINER(menubar));
-    g_assert_nonnull(children);
-    DbusmenuMenuitem *item = dbusmenu_gtk_parse_get_cached_item(children->data);
-    guint before = requests;
-    gulong handler = g_signal_connect(item, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER,
-        G_CALLBACK(requested), NULL);
-    g_assert_true(gtk_window_mnemonic_activate(GTK_WINDOW(test_window), GDK_KEY_f, GDK_MOD1_MASK));
-    g_assert_cmpuint(requests, ==, before + 1);
-    g_signal_handler_disconnect(item, handler);
-    g_list_free(children);
-    g_assert_cmpint(gtk_widget_get_allocated_height(menubar), <=, 1);
-    name("ReleaseName", "org.kde.kappmenuview");
-    name("ReleaseName", "org.kde.kappmenu");
-    drain();
-    g_assert_false(gtk_widget_shell_shows_menubar(menubar));
-    g_assert_cmpint(gtk_widget_get_allocated_height(menubar), >, 1);
-    gtk_widget_destroy(test_window);
-    g_object_unref(submenu);
-    g_object_unref(model);
+    for (gboolean desktop_exports = FALSE; desktop_exports <= TRUE; desktop_exports++) {
+        GtkSettings *settings = gtk_settings_get_default();
+        g_object_set(settings, "gtk-shell-shows-menubar", desktop_exports, NULL);
+        name("RequestName", "org.kde.kappmenu");
+        name("RequestName", "org.kde.kappmenuview");
+        gboolean shell_setting = TRUE;
+        g_object_get(settings, "gtk-shell-shows-menubar", &shell_setting, NULL);
+        g_assert_cmpint(shell_setting, ==, desktop_exports);
+        guint invoked = 0;
+        GSimpleAction *open = g_simple_action_new("open", NULL);
+        g_signal_connect(open, "activate", G_CALLBACK(action_invoked), &invoked);
+        g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(open));
+        g_object_unref(open);
+        GMenu *model = g_menu_new(), *submenu = g_menu_new();
+        g_menu_append(submenu, "Open", "app.open");
+        g_menu_append_submenu(model, "_File", G_MENU_MODEL(submenu));
+        gtk_application_set_menubar(app, G_MENU_MODEL(model));
+        /* A window without a module-owned bar keeps its native GMenu export. */
+        GtkWidget *native_window = gtk_application_window_new(app);
+        gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(native_window), FALSE);
+        gtk_widget_show_all(native_window);
+        drain();
+        gchar *native_path = x11_property(native_window, "_GTK_MENUBAR_OBJECT_PATH");
+        g_assert_nonnull(native_path);
+        g_free(native_path);
+        WindowData *native_data = gtk_window_peek_window_data(GTK_WINDOW(native_window));
+        g_assert_null(native_data->dbusmenu_servers);
+        gtk_widget_destroy(native_window);
+        GtkWidget *test_window = gtk_application_window_new(app);
+        gtk_container_add(GTK_CONTAINER(test_window), gtk_label_new("Application menu regression"));
+        gtk_widget_show_all(test_window);
+        drain();
+        GtkWidget *menubar = NULL;
+        find_menubar(test_window, &menubar);
+        if (desktop_exports) {
+            g_assert_null(menubar); /* GTK itself omitted its bar. */
+            WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+            g_assert_nonnull(data->menus);
+            menubar = data->menus->data;
+            g_object_get(settings, "gtk-shell-shows-menubar", &shell_setting, NULL);
+            g_assert_true(shell_setting);
+        }
+        g_assert_nonnull(menubar);
+        g_assert_null(x11_property(test_window, "_GTK_MENUBAR_OBJECT_PATH"));
+        g_assert_null(x11_property(test_window, "_GTK_APP_MENU_OBJECT_PATH"));
+        assert_export(test_window, menubar);
+        GList *children = gtk_container_get_children(GTK_CONTAINER(menubar));
+        g_assert_nonnull(children);
+        DbusmenuMenuitem *item = dbusmenu_gtk_parse_get_cached_item(children->data);
+        guint before = requests;
+        gulong handler = g_signal_connect(item, DBUSMENU_MENUITEM_SIGNAL_SHOW_TO_USER,
+            G_CALLBACK(requested), NULL);
+        g_assert_true(gtk_window_mnemonic_activate(GTK_WINDOW(test_window), GDK_KEY_f, GDK_MOD1_MASK));
+        g_assert_cmpuint(requests, ==, before + 1);
+        g_signal_handler_disconnect(item, handler);
+        g_list_free(children);
+        g_assert_cmpint(gtk_widget_get_allocated_height(menubar), <=, 1);
+        /* Follow the exported event all the way through to the GAction. */
+        DbusmenuMenuitem *open_item = dbusmenu_menuitem_get_children(item)->data;
+        dbusmenu_menuitem_handle_event(open_item, "clicked", NULL, GDK_CURRENT_TIME);
+        drain();
+        g_assert_cmpuint(invoked, ==, 1);
+        name("ReleaseName", "org.kde.kappmenuview");
+        name("ReleaseName", "org.kde.kappmenu");
+        drain();
+        if (!desktop_exports) {
+            g_assert_false(gtk_widget_shell_shows_menubar(menubar));
+            g_assert_cmpint(gtk_widget_get_allocated_height(menubar), >, 1);
+        }
+        if (desktop_exports) {
+            /* Updates must keep actions live and never leave a stale export. */
+            name("RequestName", "org.kde.kappmenu");
+            name("RequestName", "org.kde.kappmenuview");
+            GMenu *replacement = g_menu_new();
+            g_menu_append_submenu(replacement, "_View", G_MENU_MODEL(submenu));
+            gtk_application_set_menubar(app, G_MENU_MODEL(replacement));
+            drain();
+            WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+            g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+            menubar = data->menus->data;
+            assert_export(test_window, menubar);
+            assert_mnemonic_forwarded(menubar, TRUE);
+            gtk_widget_hide(test_window);
+            gtk_widget_unrealize(test_window);
+            gtk_widget_show_all(test_window);
+            drain();
+            data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+            g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+            menubar = data->menus->data;
+            assert_export(test_window, menubar);
+            assert_mnemonic_forwarded(menubar, TRUE);
+            /* Switch between GTK's real bar and the private bar at runtime. */
+            g_object_set(settings, "gtk-shell-shows-menubar", FALSE, NULL);
+            drain();
+            data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+            g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+            menubar = data->menus->data;
+            assert_export(test_window, menubar);
+            g_object_set(settings, "gtk-shell-shows-menubar", TRUE, NULL);
+            drain();
+            g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+            menubar = data->menus->data;
+            assert_export(test_window, menubar);
+            assert_mnemonic_forwarded(menubar, TRUE);
+            gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(test_window), FALSE);
+            drain();
+            g_assert_null(data->menus);
+            assert_export(test_window, NULL);
+            gtk_application_window_set_show_menubar(GTK_APPLICATION_WINDOW(test_window), TRUE);
+            drain();
+            g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+            assert_export(test_window, data->menus->data);
+            GMenu *application_menu = g_menu_new();
+            g_menu_append(application_menu, "About", "app.open");
+            gtk_application_set_app_menu(app, G_MENU_MODEL(application_menu));
+            drain();
+            /* Export the application menu too, before hiding its native path. */
+            menubar = g_slist_last(data->menus)->data;
+            assert_export(test_window, menubar);
+            GList *top = gtk_container_get_children(GTK_CONTAINER(menubar));
+            g_assert_cmpuint(g_list_length(top), ==, 2);
+            DbusmenuMenuitem *application_item = dbusmenu_gtk_parse_get_cached_item(top->data);
+            DbusmenuMenuitem *about = dbusmenu_menuitem_get_children(application_item)->data;
+            guint before_about = invoked;
+            dbusmenu_menuitem_handle_event(about, "clicked", NULL, GDK_CURRENT_TIME);
+            drain();
+            g_assert_cmpuint(invoked, ==, before_about + 1);
+            g_list_free(top);
+            gtk_application_set_app_menu(app, NULL);
+            g_object_unref(application_menu);
+            drain();
+            g_assert_cmpuint(g_slist_length(data->menus), ==, 1);
+            name("ReleaseName", "org.kde.kappmenuview");
+            name("ReleaseName", "org.kde.kappmenu");
+            g_object_unref(replacement);
+        }
+        gtk_widget_destroy(test_window);
+        gtk_application_set_menubar(app, NULL);
+        g_object_unref(submenu);
+        g_object_unref(model);
+        drain();
+    }
     g_object_unref(app);
-    drain();
 }
 
 int main(int argc, char **argv)
