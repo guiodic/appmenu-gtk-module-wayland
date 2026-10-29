@@ -70,6 +70,7 @@ static void (*pre_hijacked_menu_bar_get_preferred_height_for_width)(GtkWidget *w
  * Keep a private, offscreen bar in that case: GTK still registers its mnemonics
  * and resolves app./win. actions through the window, without changing settings. */
 static const char application_bar_key[] = "appmenu-private-application-bar";
+static const char application_owner_key[] = "appmenu-private-application-owner";
 
 static void destroy_application_bar(gpointer pointer)
 {
@@ -133,6 +134,39 @@ static void sync_application_bar(GObject *object, GParamSpec *pspec, GtkWidget *
 		gtk_x11_window_use_dbusmenu(GTK_WINDOW(window));
 }
 
+static void free_application_owner(gpointer pointer)
+{
+	GWeakRef *owner = pointer;
+	g_weak_ref_clear(owner);
+	g_free(owner);
+}
+
+static void sync_application_owner(GObject *object, GParamSpec *pspec, GtkWidget *window)
+{
+	GWeakRef *owner = g_object_get_data(G_OBJECT(window), application_owner_key);
+	if (owner == NULL)
+	{
+		owner = g_new0(GWeakRef, 1);
+		g_weak_ref_init(owner, NULL);
+		g_object_set_data_full(G_OBJECT(window), application_owner_key, owner, free_application_owner);
+	}
+	GtkApplication *old = g_weak_ref_get(owner);
+	GtkApplication *app = gtk_window_get_application(GTK_WINDOW(window));
+	if (old != app)
+	{
+		if (old != NULL)
+			g_signal_handlers_disconnect_by_func(old, sync_application_bar, window);
+		g_weak_ref_set(owner, app);
+		if (app != NULL)
+		{
+			g_signal_connect_object(app, "notify::menubar", G_CALLBACK(sync_application_bar), window, 0);
+			g_signal_connect_object(app, "notify::app-menu", G_CALLBACK(sync_application_bar), window, 0);
+		}
+	}
+	g_clear_object(&old);
+	sync_application_bar(NULL, NULL, window);
+}
+
 static void hijacked_window_realize(GtkWidget *widget)
 {
 	g_debug("hijacked_window_realize");
@@ -166,9 +200,13 @@ static void hijacked_window_unrealize(GtkWidget *widget)
 	if (GTK_IS_APPLICATION_WINDOW(widget))
 	{
 		g_signal_handlers_disconnect_by_func(gtk_widget_get_settings(widget), sync_application_bar, widget);
-		GtkApplication *app = gtk_window_get_application(GTK_WINDOW(widget));
+		GWeakRef *owner = g_object_get_data(G_OBJECT(widget), application_owner_key);
+		GtkApplication *app = owner != NULL ? g_weak_ref_get(owner) : NULL;
 		if (app != NULL)
 			g_signal_handlers_disconnect_by_func(app, sync_application_bar, widget);
+		g_clear_object(&app);
+		g_object_set_data(G_OBJECT(widget), application_owner_key, NULL);
+		g_signal_handlers_disconnect_by_func(widget, sync_application_owner, widget);
 		g_signal_handlers_disconnect_by_func(widget, sync_application_bar, widget);
 		g_signal_handlers_disconnect_by_func(widget, map_application_bar, NULL);
 		g_signal_handlers_disconnect_by_func(widget, unmap_application_bar, NULL);
@@ -195,16 +233,11 @@ static void hijacked_application_window_realize(GtkWidget *widget)
 		gtk_window_get_window_data((GtkWindow *)widget);
 		g_signal_connect_object(gtk_widget_get_settings(widget), "notify::gtk-shell-shows-menubar",
 		                        G_CALLBACK(sync_application_bar), widget, 0);
-		GtkApplication *app = gtk_window_get_application(GTK_WINDOW(widget));
-		if (app != NULL)
-		{
-			g_signal_connect_object(app, "notify::menubar", G_CALLBACK(sync_application_bar), widget, 0);
-			g_signal_connect_object(app, "notify::app-menu", G_CALLBACK(sync_application_bar), widget, 0);
-		}
+		g_signal_connect(widget, "notify::application", G_CALLBACK(sync_application_owner), widget);
 		g_signal_connect(widget, "notify::show-menubar", G_CALLBACK(sync_application_bar), widget);
 		g_signal_connect_after(widget, "map", G_CALLBACK(map_application_bar), NULL);
 		g_signal_connect(widget, "unmap", G_CALLBACK(unmap_application_bar), NULL);
-		sync_application_bar(NULL, NULL, widget);
+		sync_application_owner(NULL, NULL, widget);
 		if (GDK_IS_X11_DISPLAY(display))
 			gtk_x11_window_use_dbusmenu(GTK_WINDOW(widget));
 	}

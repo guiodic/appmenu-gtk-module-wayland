@@ -841,6 +841,18 @@ static void test_application_menubar(void)
             /* Updates must keep actions live and never leave a stale export. */
             name("RequestName", "org.kde.kappmenu");
             name("RequestName", "org.kde.kappmenuview");
+            /* Application assignment can change after the window is realized. */
+            g_object_ref(test_window);
+            gtk_window_set_application(GTK_WINDOW(test_window), NULL);
+            drain();
+            g_assert_null(gtk_window_peek_window_data(GTK_WINDOW(test_window))->menus);
+            gtk_window_set_application(GTK_WINDOW(test_window), app);
+            g_object_unref(test_window);
+            drain();
+            WindowData *reassigned = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+            g_assert_cmpuint(g_slist_length(reassigned->menus), ==, 1);
+            assert_export(test_window, reassigned->menus->data);
+            assert_mnemonic_forwarded(reassigned->menus->data, TRUE);
             GMenu *replacement = g_menu_new();
             g_menu_append_submenu(replacement, "_View", G_MENU_MODEL(submenu));
             gtk_application_set_menubar(app, G_MENU_MODEL(replacement));

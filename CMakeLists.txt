@@ -42,12 +42,8 @@ if(BUILD_TESTS)
     target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
 
     enable_testing()
-    # The runner needs build-host Python, even when programs are searched only
-    # in the target sysroot. Keep the toolchain's search mode outside this block.
-    block(SCOPE_FOR VARIABLES PROPAGATE Python3_EXECUTABLE)
-        set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-        find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    endblock()
+    # Keep the host runner independent of a toolchain's target Python.
+    find_program(HOST_PYTHON3 NAMES python3 REQUIRED NO_CMAKE_FIND_ROOT_PATH)
     get_target_property(MODULE_SOURCES appmenu-gtk-module-wayland SOURCES)
     list(REMOVE_ITEM MODULE_SOURCES "${SRC_DIR}/datastructs.c")
     add_executable(test-mnemonics "${TEST_DIR}/test-mnemonics.c" ${MODULE_SOURCES})
@@ -63,7 +59,7 @@ if(BUILD_TESTS)
             list(APPEND MNEMONICS_RUNNER_ARGS "--exe-wrapper=${EMULATOR_ARG}")
         endforeach()
     endif()
-    add_test(NAME mnemonics COMMAND ${Python3_EXECUTABLE} "${TEST_DIR}/run-mnemonics.py"
+    add_test(NAME mnemonics COMMAND ${HOST_PYTHON3} "${TEST_DIR}/run-mnemonics.py"
         ${MNEMONICS_RUNNER_ARGS} ${DBUS_RUN_SESSION} ${XVFB_RUN} $<TARGET_FILE:test-mnemonics>)
     set_tests_properties(mnemonics PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30 ENVIRONMENT "GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK3_MODULES=;GTK_MODULES=;MESON_EXE_WRAPPER=")
 endif()
