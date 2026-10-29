@@ -42,7 +42,12 @@ if(BUILD_TESTS)
     target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
 
     enable_testing()
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    # The runner needs build-host Python, even when programs are searched only
+    # in the target sysroot. Keep the toolchain's search mode outside this block.
+    block(SCOPE_FOR VARIABLES PROPAGATE Python3_EXECUTABLE)
+        set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    endblock()
     get_target_property(MODULE_SOURCES appmenu-gtk-module-wayland SOURCES)
     list(REMOVE_ITEM MODULE_SOURCES "${SRC_DIR}/datastructs.c")
     add_executable(test-mnemonics "${TEST_DIR}/test-mnemonics.c" ${MODULE_SOURCES})
