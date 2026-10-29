@@ -290,6 +290,8 @@ static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer us
 			{
 				guint delay = MAX(data->appmenu_retry_delay, 1);
 				data->appmenu_retry_delay = MIN(delay * 2, 30);
+				g_message("APPMENU-GTK-WAYLAND: session bus lookup failed for window %u: %s; retrying in %u seconds",
+				          data->window_id, error != NULL ? error->message : "unknown error", delay);
 				GWeakRef *window_ref = g_new0(GWeakRef, 1);
 				g_weak_ref_init(window_ref, window);
 				data->appmenu_retry_id = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT,
