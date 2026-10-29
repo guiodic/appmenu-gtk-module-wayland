@@ -52,6 +52,7 @@ struct _MenuShellData
 {
 	GtkWindow *window;
 	DbusmenuServer *server;
+	DbusmenuMenuitem *pending_root; /* Owned until the bus is available. */
 };
 
 #endif // DATASTRUCTSPRIVATE_H

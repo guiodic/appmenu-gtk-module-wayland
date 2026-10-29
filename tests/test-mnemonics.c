@@ -246,7 +246,7 @@ static void assert_export(GtkWidget *widget, GtkWidget *menubar)
     if (menubar) {
         WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(widget));
         MenuShellData *shell = gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar));
-        for (guint attempt = 0; attempt < 50 && data->published_server != shell->server; attempt++)
+        for (guint attempt = 0; attempt < 50 && (shell->server == NULL || data->published_server != shell->server); attempt++)
             drain();
     }
     gchar *service = x11_property(widget, "_KDE_NET_WM_APPMENU_SERVICE_NAME");
@@ -478,7 +478,8 @@ static void test_initial_bus_failure(void)
     WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
     g_assert_nonnull(data);
     g_assert_false(data->x11_bus_initialized);
-    g_assert_nonnull(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->server);
+    g_assert_null(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->server);
+    g_assert_nonnull(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->pending_root);
     drain();
     assert_export(test_window, NULL);
     g_assert_cmpuint(data->appmenu_retry_id, !=, 0);
@@ -488,6 +489,88 @@ static void test_initial_bus_failure(void)
     g_assert_true(data->x11_bus_initialized);
     gtk_widget_destroy(test_window);
     drain();
+}
+
+typedef struct {
+    gboolean done;
+    GVariant *reply;
+    GError *error;
+} LayoutReply;
+
+static void layout_received(GObject *source, GAsyncResult *result, gpointer pointer)
+{
+    LayoutReply *reply = pointer;
+    reply->reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &reply->error);
+    reply->done = TRUE;
+}
+
+static void test_real_initial_bus_failure(void)
+{
+    /* A fresh process has no cached session connection. Both this module and
+     * the unmodified libdbusmenu must encounter the real connection failure. */
+    gchar *healthy_address = g_strdup(g_getenv("DBUS_SESSION_BUS_ADDRESS"));
+    g_assert_nonnull(healthy_address);
+    g_setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/appmenu-test-bus", TRUE);
+    GError *error = NULL;
+    GDBusConnection *unavailable = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    g_assert_null(unavailable);
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    store_pre_hijacked();
+    hijack_menu_bar_class_vtable(GTK_TYPE_MENU_BAR);
+    /* Prove that the fault reaches libdbusmenu, outside our test wrappers. */
+    g_test_expect_message("LIBDBUSMENU-GLIB", G_LOG_LEVEL_WARNING, "Unable to get session bus:*");
+    DbusmenuServer *probe = dbusmenu_server_new("/InitialFailureProbe");
+    drain();
+    g_test_assert_expected_messages();
+    g_object_unref(probe);
+    GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(test_window), box);
+    GtkWidget *menubar = append_bar(box);
+    gtk_widget_show_all(test_window);
+    drain();
+    /* Module-owned servers must not attempt this unrecoverable acquisition. */
+    g_assert_null(gtk_menu_shell_get_menu_shell_data(GTK_MENU_SHELL(menubar))->server);
+    WindowData *data = gtk_window_peek_window_data(GTK_WINDOW(test_window));
+    g_assert_nonnull(data);
+    g_assert_null(data->published_server);
+    g_assert_cmpuint(data->appmenu_retry_id, !=, 0);
+    /* The pending model must still track changes made before registration. */
+    GtkWidget *extra = gtk_menu_item_new_with_mnemonic("_Extra");
+    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), extra);
+    gtk_widget_show(extra);
+    drain();
+    g_setenv("DBUS_SESSION_BUS_ADDRESS", healthy_address, TRUE);
+    g_free(healthy_address);
+    bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(bus);
+    assert_export(test_window, menubar);
+    gchar *service = x11_property(test_window, "_KDE_NET_WM_APPMENU_SERVICE_NAME");
+    gchar *path = x11_property(test_window, "_KDE_NET_WM_APPMENU_OBJECT_PATH");
+    LayoutReply reply = { 0 };
+    g_dbus_connection_call(bus, service, path, "com.canonical.dbusmenu", "GetLayout",
+        g_variant_new("(ii@as)", 0, -1, g_variant_new_strv(NULL, 0)),
+        G_VARIANT_TYPE("(u(ia{sv}av))"), G_DBUS_CALL_FLAGS_NONE, 3000, NULL,
+        layout_received, &reply);
+    gint64 deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
+    while (!reply.done && g_get_monotonic_time() < deadline)
+        drain();
+    g_assert_true(reply.done);
+    g_assert_no_error(reply.error);
+    g_assert_nonnull(reply.reply);
+    GVariant *layout = g_variant_get_child_value(reply.reply, 1);
+    GVariant *children = g_variant_get_child_value(layout, 2);
+    g_assert_cmpuint(g_variant_n_children(children), ==, 2);
+    g_variant_unref(children);
+    g_variant_unref(layout);
+    g_variant_unref(reply.reply);
+    g_free(path);
+    g_free(service);
+    gtk_widget_destroy(test_window);
+    drain();
+    g_object_unref(bus);
 }
 
 static gboolean heartbeat(gpointer data)
@@ -710,11 +793,20 @@ static void test_application_menubar(void)
 
 int main(int argc, char **argv)
 {
+    gboolean real_bus_failure = argc == 2 && g_str_equal(argv[1], "--real-bus-failure");
+    if (real_bus_failure) {
+        argc = 1;
+        argv[1] = NULL;
+    }
     gtk_test_init(&argc, &argv, NULL);
     gchar *configured_modules = NULL;
     g_object_get(gtk_settings_get_default(), "gtk-modules", &configured_modules, NULL);
     g_assert_true(configured_modules == NULL || *configured_modules == '\0');
     g_free(configured_modules);
+    if (real_bus_failure) {
+        g_test_add_func("/appmenu/real-initial-bus-failure", test_real_initial_bus_failure);
+        return g_test_run();
+    }
     bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
     g_assert_nonnull(bus);
     watch_registrar_dbus();

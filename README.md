@@ -146,9 +146,11 @@ Python 3 runner, honors `MESON_EXE_WRAPPER` for cross-built targets, and reports
 a skipped test when the target cannot run and no wrapper is available.
 
 Both test runners use a temporary, isolated XDG configuration so user or system
-GTK settings cannot load additional modules. Python 3 is required for either
-test runner. This module targets Plasma Wayland sessions with native GTK Wayland
-and Xwayland applications; builds require both backend development dependencies.
+GTK settings cannot load additional modules. A temporary `settings.ini` also
+sets `gtk-modules=` explicitly to override GTK's compiled-in system configuration.
+Python 3 is required for either test runner. This module targets Plasma Wayland
+sessions with native GTK Wayland and Xwayland applications; builds require both
+backend development dependencies.
 Transient session-bus lookup failures withdraw the menu address and retry while
 the window and menu remain alive. This does not promise recovery from a complete
 session-bus restart, which may terminate GTK applications and invalidate exports.
@@ -157,7 +159,17 @@ Menu publication, including initial Xwayland bus-dependent setup, obtains the
 session bus asynchronously. Failed lookups retry after 1, 2, 4, 8, 16 and at most
 30 seconds while the menu remains alive. Replacing/unrealizing a menu or closing
 its window cancels pending requests and retries; late replies cannot republish
-an obsolete export. The backoff resets after a successful lookup.
+an obsolete export. The backoff resets after a successful lookup. Parsed menu
+models are retained while the bus is unavailable; DbusmenuServer instances are
+created only after obtaining the shared session connection, because libdbusmenu
+does not retry its own failed initial connection.
+
+The runner also starts a fresh target process for `--real-bus-failure`, applying
+the same cross emulator. This avoids GIO's cached connection. An independent
+libdbusmenu probe confirms that an unreachable address causes a real acquisition
+failure; the module must defer its own servers until the bus is available and
+recover without reconnecting the menu. A `GetLayout` call to the advertised
+object verifies registration and menu contents after recovery.
 
 When CMake cross-compiles the tests, set `CMAKE_CROSSCOMPILING_EMULATOR` to a
 semicolon-separated command and argument list. The runner applies it only to

@@ -223,7 +223,7 @@ static gboolean restore_native_menu_paths(gpointer pointer)
 	if (data != NULL)
 	{
 		data->x11_restore_menu_paths_id = 0;
-		if (data->dbusmenu_servers == NULL && data->x11_menu_paths_hidden &&
+		if (data->menus == NULL && data->x11_menu_paths_hidden &&
 		    gtk_widget_get_realized(GTK_WIDGET(window)) &&
 		    !gtk_widget_in_destruction(GTK_WIDGET(window)))
 		{
@@ -249,7 +249,7 @@ G_GNUC_INTERNAL void gtk_x11_window_use_dbusmenu(GtkWindow *window)
 	WindowData *data = gtk_window_peek_window_data(window);
 	if (data == NULL)
 		return;
-	if (data->dbusmenu_servers != NULL)
+	if (data->menus != NULL)
 	{
 		if (data->x11_restore_menu_paths_id != 0)
 		{

@@ -122,6 +122,7 @@ G_GNUC_INTERNAL void menu_shell_data_free(gpointer data)
 			menu_shell_data->server = NULL;
 			g_object_unref(server);
 		}
+		g_clear_object(&menu_shell_data->pending_root);
 		g_slice_free(MenuShellData, menu_shell_data);
 	}
 }
@@ -250,7 +251,7 @@ static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer us
 	{
 		g_clear_object(&data->appmenu_request);
 		GdkWindow *gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
-		GSList *last = g_slist_last(data->dbusmenu_servers);
+		GSList *last = g_slist_last(data->menus);
 		if (gdk_window != NULL && last != NULL &&
 		    !gtk_widget_in_destruction(GTK_WIDGET(window)))
 		{
@@ -258,12 +259,30 @@ static void appmenu_bus_ready(GObject *source, GAsyncResult *result, gpointer us
 			{
 				if (GDK_IS_X11_WINDOW(gdk_window))
 					gtk_x11_window_init_bus_properties(window, data, connection);
+				/* libdbusmenu does not retry a failed initial bus acquisition.
+				 * Construct its servers only while holding the shared session
+				 * connection, so their own async acquisitions can reuse it. */
+				for (GSList *iter = data->menus; iter != NULL; iter = iter->next)
+				{
+					MenuShellData *shell = gtk_menu_shell_get_menu_shell_data(iter->data);
+					if (shell->server == NULL)
+					{
+						gchar *object_path = g_strdup_printf("/MenuBar/%u/%p", data->window_id, iter->data);
+						shell->server = dbusmenu_server_new(object_path);
+						dbusmenu_server_set_root(shell->server, shell->pending_root);
+						g_clear_object(&shell->pending_root);
+						data->dbusmenu_servers = g_slist_append(data->dbusmenu_servers,
+						    g_object_ref(shell->server));
+						g_free(object_path);
+					}
+				}
+				MenuShellData *shell = gtk_menu_shell_get_menu_shell_data(last->data);
 				gchar *path = NULL;
-				g_object_get(last->data, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
+				g_object_get(shell->server, DBUSMENU_SERVER_PROP_DBUS_OBJECT, &path, NULL);
 				data->kde_appmenu = appmenu_set_address(gdk_window,
 				    g_dbus_connection_get_unique_name(connection), path);
 				if (GDK_IS_X11_WINDOW(gdk_window) || data->kde_appmenu != NULL)
-					data->published_server = last->data;
+					data->published_server = shell->server;
 				data->appmenu_retry_delay = 0;
 				g_free(path);
 			}
@@ -309,7 +328,7 @@ static void update_window_appmenu(GtkWindow *window, WindowData *data)
 	appmenu_set_address(gdk_window, NULL, NULL);
 	if (GDK_IS_X11_WINDOW(gdk_window))
 		gtk_x11_window_use_dbusmenu(window);
-	if (data->dbusmenu_servers == NULL)
+	if (data->menus == NULL)
 		return;
 
 	AppmenuRequest *request = g_new0(AppmenuRequest, 1);
@@ -367,6 +386,7 @@ G_GNUC_INTERNAL void gtk_window_disconnect_menu_shell(GtkWindow *window, GtkMenu
 		    menu_shell_data->server = NULL;
 		}
 
+		g_clear_object(&menu_shell_data->pending_root);
 		update_window_appmenu(window, window_data);
 		menu_shell_data->window = NULL;
 	}
@@ -709,18 +729,9 @@ G_GNUC_INTERNAL void gtk_window_connect_menu_shell(GtkWindow *window, GtkMenuShe
 					}
 				}
 
-				gchar *path = g_strdup_printf("/MenuBar/%u/%p", window_data->window_id, menu_shell);
-				DbusmenuServer *srv = dbusmenu_server_new(path);
-				dbusmenu_server_set_root(srv, item);
-				if (item != NULL)
-					g_object_unref(item);
-
-				window_data->dbusmenu_servers = g_slist_append(window_data->dbusmenu_servers, srv);
-				menu_shell_data->server       = g_object_ref(srv);
-
+				/* Keep the parsed model until the session bus is available. */
+				menu_shell_data->pending_root = item;
 				update_window_appmenu(window, window_data);
-
-				g_free(path);
 			}
 		}
 
