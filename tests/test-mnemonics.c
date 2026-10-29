@@ -55,6 +55,17 @@ static GDBusConnection *test_bus_get_finish(GAsyncResult *result, GError **error
 }
 #include "../src/hijack.h"
 
+/* Vfunc originals must be saved before the first replacement, never again. */
+static void ensure_test_hooks(void)
+{
+    static gsize initialized;
+    if (g_once_init_enter(&initialized)) {
+        store_pre_hijacked();
+        hijack_menu_bar_class_vtable(GTK_TYPE_MENU_BAR);
+        g_once_init_leave(&initialized, 1);
+    }
+}
+
 static GDBusConnection *bus;
 static GtkWidget *window, *bar, *submenu_item, *leaf;
 static guint requests, activations;
@@ -316,6 +327,7 @@ static void assert_native_menu_path(GtkWidget *widget, const char *property, con
 
 static void test_native_menu_path_release(void)
 {
+    ensure_test_hooks();
     /* Preserve each property's value or absence independently. */
     for (guint mask = 0; mask < 4; mask++) {
         GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -393,6 +405,8 @@ static GtkWidget *append_unparsed_bar(GtkWidget *box)
 
 static void test_parse_failure(void)
 {
+    ensure_test_hooks();
+    name("RequestName", "org.kde.kappmenu");
     name("RequestName", "org.kde.kappmenuview");
     GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -432,6 +446,7 @@ static void test_parse_failure(void)
     assert_export(test_window, valid);
     gtk_widget_destroy(test_window);
     name("ReleaseName", "org.kde.kappmenuview");
+    name("ReleaseName", "org.kde.kappmenu");
     drain();
 }
 
@@ -440,8 +455,7 @@ static void test_export_lifecycle(void)
     name("RequestName", "org.kde.kappmenuview");
     g_object_set(gtk_widget_get_settings(bar), "gtk-shell-shows-menubar", TRUE, NULL);
     /* Install the real realize/unrealize hooks: no manual disconnect in this test. */
-    store_pre_hijacked();
-    hijack_menu_bar_class_vtable(GTK_TYPE_MENU_BAR);
+    ensure_test_hooks();
     GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(test_window), box);
@@ -542,6 +556,7 @@ static void complete_delayed_requests(void)
 
 static void test_initial_bus_failure(void)
 {
+    ensure_test_hooks();
     fail_session_bus = TRUE;
     GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -589,8 +604,7 @@ static void test_real_initial_bus_failure(void)
     g_assert_null(unavailable);
     g_assert_nonnull(error);
     g_clear_error(&error);
-    store_pre_hijacked();
-    hijack_menu_bar_class_vtable(GTK_TYPE_MENU_BAR);
+    ensure_test_hooks();
     /* Prove that the fault reaches libdbusmenu, outside our test wrappers. */
     g_test_expect_message("LIBDBUSMENU-GLIB", G_LOG_LEVEL_WARNING, "Unable to get session bus:*");
     DbusmenuServer *probe = dbusmenu_server_new("/InitialFailureProbe");
@@ -654,6 +668,7 @@ static gboolean heartbeat(gpointer data)
 
 static void test_slow_bus_cancellation(void)
 {
+    ensure_test_hooks();
     delay_session_bus = TRUE;
     guint before = bus_requests;
     GtkWidget *test_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -710,6 +725,7 @@ static void action_invoked(GSimpleAction *action, GVariant *parameter, gpointer 
 
 static void test_application_menubar(void)
 {
+    ensure_test_hooks();
     GtkApplication *app = gtk_application_new("org.example.AppmenuRegression", G_APPLICATION_NON_UNIQUE);
     GError *error = NULL;
     g_assert_true(g_application_register(G_APPLICATION(app), NULL, &error));
