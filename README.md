@@ -112,4 +112,31 @@ export UBUNTU_MENUPROXY
 
 **YOU SHOULD RELOGIN AFTER INSTALLING THIS MODULE FIRST TIME**
 
+### Regression tests
 
+Tests require Python 3, D-Bus, Xvfb and xauth in addition to the GTK 3,
+libdbusmenu-gtk3, Wayland and X11 development dependencies.
+
+With CMake and Ninja:
+
+```sh
+cmake -S . -B build -G Ninja -DBUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+With Meson:
+
+```sh
+meson setup build-meson -Dtests=true
+meson compile -C build-meson
+meson test -C build-meson --print-errorlogs
+```
+
+The suite checks mnemonic forwarding, GTK action fallback, menu export lifecycle
+and recovery from initial session-bus connection failures without requiring Plasma.
+Check actual popup placement separately with Material in a Plasma Wayland session,
+using both native Wayland applications and Xwayland applications (`GDK_BACKEND=x11`).
+
+See [Testing and appmenu integration](docs/testing.md) for cross-compilation,
+test isolation, integration checks and supported recovery behavior.

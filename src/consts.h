@@ -31,9 +31,6 @@
 #define INNER_MENU_KEY "always-show-inner-menu"
 #define RUN_ON_WAYLAND "run-on-wayland"
 
-#define _GTK_UNIQUE_BUS_NAME "_GTK_UNIQUE_BUS_NAME"
-#define _UNITY_OBJECT_PATH "_UNITY_OBJECT_PATH"
 #define _GTK_MENUBAR_OBJECT_PATH "_GTK_MENUBAR_OBJECT_PATH"
-#define OBJECT_PATH "/org/appmenu/gtk/window"
 
 #endif

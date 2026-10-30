@@ -39,6 +39,7 @@
 
 #ifdef GDK_WINDOWING_X11
 G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window);
+G_GNUC_INTERNAL void gtk_x11_window_use_dbusmenu(GtkWindow *window);
 #endif
 
 #ifdef GDK_WINDOWING_WAYLAND

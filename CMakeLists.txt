@@ -6,6 +6,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(DBUSMENU_GTK3 REQUIRED IMPORTED_TARGET dbusmenu-gtk3-0.4)
 pkg_check_modules(DBUSMENU_GLIB REQUIRED IMPORTED_TARGET dbusmenu-glib-0.4)
+pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 
 set(CMAKE_C_STANDARD 11)
@@ -30,7 +31,7 @@ add_library(appmenu-gtk-module-wayland  SHARED
 )
 
 target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
-target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT)
+target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
 
 option(BUILD_TESTS "Build test applications" OFF)
 
@@ -39,4 +40,26 @@ if(BUILD_TESTS)
 
     add_executable(unity-gtk-menu-tester "${TEST_DIR}/demos/unity-gtk-menu-tester.c")
     target_link_libraries(unity-gtk-menu-tester PkgConfig::GTK3)
+
+    enable_testing()
+    # Keep the host runner independent of a toolchain's target Python.
+    find_program(HOST_PYTHON3 NAMES python3 REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+    get_target_property(MODULE_SOURCES appmenu-gtk-module-wayland SOURCES)
+    list(REMOVE_ITEM MODULE_SOURCES "${SRC_DIR}/datastructs.c")
+    add_executable(test-mnemonics "${TEST_DIR}/test-mnemonics.c" ${MODULE_SOURCES})
+    target_include_directories(test-mnemonics PRIVATE "${GENERATED_DIR}" "${LIB_DIR}")
+    target_link_libraries(test-mnemonics PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3
+        PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
+    find_program(DBUS_RUN_SESSION dbus-run-session REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+    find_program(XVFB_RUN xvfb-run REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+    set(MNEMONICS_RUNNER_ARGS --can-run-host-binaries yes)
+    if(CMAKE_CROSSCOMPILING)
+        set(MNEMONICS_RUNNER_ARGS --cross-build --can-run-host-binaries no)
+        foreach(EMULATOR_ARG IN LISTS CMAKE_CROSSCOMPILING_EMULATOR)
+            list(APPEND MNEMONICS_RUNNER_ARGS "--exe-wrapper=${EMULATOR_ARG}")
+        endforeach()
+    endif()
+    add_test(NAME mnemonics COMMAND ${HOST_PYTHON3} "${TEST_DIR}/run-mnemonics.py"
+        ${MNEMONICS_RUNNER_ARGS} ${DBUS_RUN_SESSION} ${XVFB_RUN} $<TARGET_FILE:test-mnemonics>)
+    set_tests_properties(mnemonics PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30 ENVIRONMENT "GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK3_MODULES=;GTK_MODULES=;MESON_EXE_WRAPPER=")
 endif()

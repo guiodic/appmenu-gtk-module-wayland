@@ -66,6 +66,107 @@ static void (*pre_hijacked_menu_bar_get_preferred_height_for_width)(GtkWidget *w
                                                                     gint *natural_height);
 #endif
 
+/* GtkApplicationWindow omits its menubar when the desktop exports GMenu.
+ * Keep a private, offscreen bar in that case: GTK still registers its mnemonics
+ * and resolves app./win. actions through the window, without changing settings. */
+static const char application_bar_key[] = "appmenu-private-application-bar";
+static const char application_owner_key[] = "appmenu-private-application-owner";
+
+static void destroy_application_bar(gpointer pointer)
+{
+	GtkWidget *bar = pointer;
+	gtk_widget_unparent(bar);
+	gtk_widget_destroy(bar);
+	g_object_unref(bar);
+}
+
+static void map_application_bar(GtkWidget *window, gpointer unused)
+{
+	GtkWidget *bar = g_object_get_data(G_OBJECT(window), application_bar_key);
+	if (bar != NULL)
+		gtk_widget_map(bar);
+}
+
+static void unmap_application_bar(GtkWidget *window, gpointer unused)
+{
+	GtkWidget *bar = g_object_get_data(G_OBJECT(window), application_bar_key);
+	if (bar != NULL)
+		gtk_widget_unmap(bar);
+}
+
+static void sync_application_bar(GObject *object, GParamSpec *pspec, GtkWidget *window)
+{
+	GtkApplication *app = gtk_window_get_application(GTK_WINDOW(window));
+	gboolean shell_shows = FALSE;
+	g_object_get(gtk_widget_get_settings(window), "gtk-shell-shows-menubar", &shell_shows, NULL);
+	GMenuModel *model = app != NULL ? gtk_application_get_menubar(app) : NULL;
+	GMenuModel *app_menu = app != NULL ? gtk_application_get_app_menu(app) : NULL;
+	GtkWidget *bar = g_object_get_data(G_OBJECT(window), application_bar_key);
+	if (!shell_shows || model == NULL ||
+	    !gtk_application_window_get_show_menubar(GTK_APPLICATION_WINDOW(window)))
+	{
+		g_object_set_data(G_OBJECT(window), application_bar_key, NULL);
+		return;
+	}
+	if (bar != NULL && g_object_get_data(G_OBJECT(bar), "appmenu-source-model") == model &&
+	    g_object_get_data(G_OBJECT(bar), "appmenu-application-model") == app_menu)
+		return;
+	g_object_set_data(G_OBJECT(window), application_bar_key, NULL);
+	GMenu *combined = g_menu_new();
+	if (app_menu != NULL)
+		g_menu_append_submenu(combined, g_get_application_name(), app_menu);
+	g_menu_append_section(combined, NULL, model);
+	bar = gtk_menu_bar_new_from_model(G_MENU_MODEL(combined));
+	g_object_unref(combined);
+	g_object_ref_sink(bar);
+	if (app_menu != NULL)
+		g_object_set_data_full(G_OBJECT(bar), "appmenu-application-model", g_object_ref(app_menu), g_object_unref);
+	g_object_set_data_full(G_OBJECT(bar), "appmenu-source-model", g_object_ref(model), g_object_unref);
+	g_object_set_data_full(G_OBJECT(window), application_bar_key, bar, destroy_application_bar);
+	gtk_widget_set_parent(bar, window);
+	gtk_widget_show(bar);
+	gtk_widget_realize(bar);
+	GtkAllocation allocation = { -1, -1, 1, 1 };
+	gtk_widget_size_allocate(bar, &allocation);
+	if (gtk_widget_get_mapped(window))
+		gtk_widget_map(bar);
+	if (GDK_IS_X11_DISPLAY(gtk_widget_get_display(window)))
+		gtk_x11_window_use_dbusmenu(GTK_WINDOW(window));
+}
+
+static void free_application_owner(gpointer pointer)
+{
+	GWeakRef *owner = pointer;
+	g_weak_ref_clear(owner);
+	g_free(owner);
+}
+
+static void sync_application_owner(GObject *object, GParamSpec *pspec, GtkWidget *window)
+{
+	GWeakRef *owner = g_object_get_data(G_OBJECT(window), application_owner_key);
+	if (owner == NULL)
+	{
+		owner = g_new0(GWeakRef, 1);
+		g_weak_ref_init(owner, NULL);
+		g_object_set_data_full(G_OBJECT(window), application_owner_key, owner, free_application_owner);
+	}
+	GtkApplication *old = g_weak_ref_get(owner);
+	GtkApplication *app = gtk_window_get_application(GTK_WINDOW(window));
+	if (old != app)
+	{
+		if (old != NULL)
+			g_signal_handlers_disconnect_by_func(old, sync_application_bar, window);
+		g_weak_ref_set(owner, app);
+		if (app != NULL)
+		{
+			g_signal_connect_object(app, "notify::menubar", G_CALLBACK(sync_application_bar), window, 0);
+			g_signal_connect_object(app, "notify::app-menu", G_CALLBACK(sync_application_bar), window, 0);
+		}
+	}
+	g_clear_object(&old);
+	sync_application_bar(NULL, NULL, window);
+}
+
 static void hijacked_window_realize(GtkWidget *widget)
 {
 	g_debug("hijacked_window_realize");
@@ -96,6 +197,21 @@ static void hijacked_window_unrealize(GtkWidget *widget)
 	if (widget == NULL || !GTK_IS_WINDOW(widget))
 		return;
 
+	if (GTK_IS_APPLICATION_WINDOW(widget))
+	{
+		g_signal_handlers_disconnect_by_func(gtk_widget_get_settings(widget), sync_application_bar, widget);
+		GWeakRef *owner = g_object_get_data(G_OBJECT(widget), application_owner_key);
+		GtkApplication *app = owner != NULL ? g_weak_ref_get(owner) : NULL;
+		if (app != NULL)
+			g_signal_handlers_disconnect_by_func(app, sync_application_bar, widget);
+		g_clear_object(&app);
+		g_object_set_data(G_OBJECT(widget), application_owner_key, NULL);
+		g_signal_handlers_disconnect_by_func(widget, sync_application_owner, widget);
+		g_signal_handlers_disconnect_by_func(widget, sync_application_bar, widget);
+		g_signal_handlers_disconnect_by_func(widget, map_application_bar, NULL);
+		g_signal_handlers_disconnect_by_func(widget, unmap_application_bar, NULL);
+		g_object_set_data(G_OBJECT(widget), application_bar_key, NULL);
+	}
 	if (pre_hijacked_window_unrealize != NULL)
 		pre_hijacked_window_unrealize(widget);
 
@@ -113,7 +229,18 @@ static void hijacked_application_window_realize(GtkWidget *widget)
 
 	GdkDisplay *display = gdk_display_get_default();
 	if (display != NULL && (GDK_IS_X11_DISPLAY(display) || GDK_IS_WAYLAND_DISPLAY(display)))
+	{
 		gtk_window_get_window_data((GtkWindow *)widget);
+		g_signal_connect_object(gtk_widget_get_settings(widget), "notify::gtk-shell-shows-menubar",
+		                        G_CALLBACK(sync_application_bar), widget, 0);
+		g_signal_connect(widget, "notify::application", G_CALLBACK(sync_application_owner), widget);
+		g_signal_connect(widget, "notify::show-menubar", G_CALLBACK(sync_application_bar), widget);
+		g_signal_connect_after(widget, "map", G_CALLBACK(map_application_bar), NULL);
+		g_signal_connect(widget, "unmap", G_CALLBACK(unmap_application_bar), NULL);
+		sync_application_owner(NULL, NULL, widget);
+		if (GDK_IS_X11_DISPLAY(display))
+			gtk_x11_window_use_dbusmenu(GTK_WINDOW(widget));
+	}
 }
 
 static void hijacked_menu_bar_realize(GtkWidget *widget)
@@ -129,7 +256,11 @@ static void hijacked_menu_bar_realize(GtkWidget *widget)
 	window = gtk_widget_get_toplevel(widget);
 
 	if (GTK_IS_WINDOW(window))
+	{
 		gtk_window_connect_menu_shell((GtkWindow *)window, (GtkMenuShell *)widget);
+		if (GDK_IS_X11_DISPLAY(gtk_widget_get_display(window)))
+			gtk_x11_window_use_dbusmenu(GTK_WINDOW(window));
+	}
 
 	gtk_widget_connect_settings(widget);
 }

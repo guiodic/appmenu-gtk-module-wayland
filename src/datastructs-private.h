@@ -31,10 +31,16 @@
 struct _WindowData
 {
 	uint window_id;
-	GMenu *menu_model;
 	GSList *menus;
 	GSList *dbusmenu_servers;
-	GMenuModel *old_model;
+	DbusmenuServer *published_server; /* Borrowed from dbusmenu_servers. */
+	guint appmenu_retry_id;
+	guint appmenu_retry_delay;
+	GCancellable *appmenu_request;
+	gboolean x11_menu_paths_hidden;
+	char *x11_native_menubar_path;
+	char *x11_native_appmenu_path;
+	guint x11_restore_menu_paths_id;
 	struct org_kde_kwin_appmenu *kde_appmenu;
 	GtkWidget *menu;
 };
@@ -43,6 +49,7 @@ struct _MenuShellData
 {
 	GtkWindow *window;
 	DbusmenuServer *server;
+	DbusmenuMenuitem *pending_root; /* Owned until the bus is available. */
 };
 
 #endif // DATASTRUCTSPRIVATE_H

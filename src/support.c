@@ -33,13 +33,20 @@
 #include "platform.h"
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-static uint watcher_ids[4] = { 0, 0, 0, 0 };
-static bool registrar_present[4] = { false, false, false, false };
-
-static const char *const REGISTRAR_NAMES[] = { "com.canonical.AppMenu.Registrar",
-                                               "org.kde.KAppMenu",
-                                               "org.kde.kappmenu",
-                                               "org.ayatana.AppMenu.Registrar" };
+/* The viewer is watched independently and is not counted as a registrar. */
+static const char *const WATCHED_NAMES[] = {
+	"com.canonical.AppMenu.Registrar",
+	"org.kde.KAppMenu",
+	"org.kde.kappmenu",
+	"org.ayatana.AppMenu.Registrar",
+	"org.kde.kappmenuview"
+};
+enum { REGISTRAR_COUNT = 4, KDE_VIEWER_INDEX = REGISTRAR_COUNT };
+static uint watcher_ids[G_N_ELEMENTS(WATCHED_NAMES)] = { 0 };
+static bool bus_name_present[G_N_ELEMENTS(WATCHED_NAMES)] = { false };
+static bool watcher_request_pending;
+static guint watcher_retry_id;
+static guint watcher_retry_delay;
 #endif
 
 static bool is_true(const char *value)
@@ -76,14 +83,32 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 	return should_run;
 }
 
+/* KDE only listens for ItemActivationRequested while its viewer is registered.
+ * Keep this separate from registrar availability and menubar visibility. */
+G_GNUC_INTERNAL bool appmenu_mnemonic_receiver_present(void)
+{
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+	return bus_name_present[KDE_VIEWER_INDEX];
+#else
+	return false;
+#endif
+}
+
+G_GNUC_INTERNAL bool appmenu_registrar_present(void)
+{
+#if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
+	for (int i = 0; i < REGISTRAR_COUNT; i++)
+		if (bus_name_present[i])
+			return true;
+#endif
+	return false;
+}
+
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-	for (int i = 0; i < 4; i++)
-	{
-		if (registrar_present[i])
-			return true;
-	}
+	if (appmenu_registrar_present())
+		return true;
 #ifdef GDK_WINDOWING_WAYLAND
 	if (org_kde_kwin_appmenu_manager != NULL)
 		return true;
@@ -133,44 +158,38 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 }
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-G_GNUC_INTERNAL bool set_gtk_shell_shows_menubar(bool shows)
+static void resize_menu_bar(GtkWidget *widget, gpointer user_data)
 {
-	GtkSettings *settings = gtk_settings_get_default();
-
-	if (settings == NULL)
-		return false;
-
-#ifdef GDK_WINDOWING_WAYLAND
-	GdkDisplay *display = gdk_display_get_default();
-	if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
-		return true;
-#endif
-
-	GParamSpec *pspec =
-	    g_object_class_find_property(G_OBJECT_GET_CLASS(settings), "gtk-shell-shows-menubar");
-
-	if (pspec && pspec->value_type == G_TYPE_BOOLEAN)
-		g_object_set(settings, "gtk-shell-shows-menubar", shows, NULL);
-
-	return true;
+	(void)user_data;
+	if (GTK_IS_MENU_BAR(widget))
+		gtk_widget_queue_resize(widget);
+	else if (GTK_IS_CONTAINER(widget))
+		gtk_container_forall(GTK_CONTAINER(widget), resize_menu_bar, NULL);
 }
 
-static void update_registrar_state()
+G_GNUC_INTERNAL void gtk_module_notify_menu_state(void)
 {
-	bool any_present = false;
-	for (int i = 0; i < 4; i++)
+	/* Keep GTK's own shell setting intact. GtkApplicationWindow otherwise
+	 * stops constructing its menubar, removing its mnemonic targets as well.
+	 * Our size hooks hide bars using the module's registrar/Wayland state. */
+	GList *windows = gtk_window_list_toplevels();
+	for (GList *iter = windows; iter != NULL; iter = iter->next)
+		resize_menu_bar(iter->data, NULL);
+	g_list_free(windows);
+}
+
+static void schedule_watcher_retry(void);
+
+static void clear_name_watchers(void)
+{
+	for (guint i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
 	{
-		if (registrar_present[i])
-		{
-			any_present = true;
-			break;
-		}
+		if (watcher_ids[i] != 0)
+			g_bus_unwatch_name(watcher_ids[i]);
+		watcher_ids[i] = 0;
+		bus_name_present[i] = false;
 	}
-#ifdef GDK_WINDOWING_WAYLAND
-	if (org_kde_kwin_appmenu_manager != NULL)
-		any_present = true;
-#endif
-	set_gtk_shell_shows_menubar(any_present);
+	gtk_module_notify_menu_state();
 }
 
 static void on_name_appeared(GDBusConnection *connection, const char *name, const char *name_owner,
@@ -179,86 +198,76 @@ static void on_name_appeared(GDBusConnection *connection, const char *name, cons
 	g_debug("Name %s on the session bus is owned by %s", name, name_owner);
 
 	int index = GPOINTER_TO_INT(user_data);
-	registrar_present[index] = true;
-	update_registrar_state();
+	bus_name_present[index] = true;
+	if (index < REGISTRAR_COUNT)
+		gtk_module_notify_menu_state();
 }
 
 static void on_name_vanished(GDBusConnection *connection, const char *name, gpointer user_data)
 {
+	if (connection == NULL || g_dbus_connection_is_closed(connection))
+	{
+		clear_name_watchers();
+		schedule_watcher_retry();
+		return;
+	}
 	g_debug("Name %s does not exist on the session bus", name);
 
 	int index = GPOINTER_TO_INT(user_data);
-	registrar_present[index] = false;
-	update_registrar_state();
+	bus_name_present[index] = false;
+	if (index < REGISTRAR_COUNT)
+		gtk_module_notify_menu_state();
+}
+
+static gboolean retry_name_watchers(gpointer unused)
+{
+	watcher_retry_id = 0;
+	watch_registrar_dbus();
+	return G_SOURCE_REMOVE;
+}
+
+static void schedule_watcher_retry(void)
+{
+	if (watcher_retry_id == 0)
+	{
+		guint delay = MAX(watcher_retry_delay, 1);
+		watcher_retry_delay = MIN(delay * 2, 30);
+		watcher_retry_id = g_timeout_add_seconds(delay, retry_name_watchers, NULL);
+	}
+}
+
+static void watcher_bus_ready(GObject *source, GAsyncResult *result, gpointer unused)
+{
+	GError *error = NULL;
+	GDBusConnection *connection = g_bus_get_finish(result, &error);
+	watcher_request_pending = false;
+	if (connection == NULL || g_dbus_connection_is_closed(connection))
+	{
+		g_debug("Unable to connect appmenu name watchers: %s",
+		        error != NULL ? error->message : "connection closed");
+		schedule_watcher_retry();
+	}
+	else
+	{
+		watcher_retry_delay = 0;
+		for (guint i = 0; i < G_N_ELEMENTS(WATCHED_NAMES); i++)
+			watcher_ids[i] = g_bus_watch_name_on_connection(connection, WATCHED_NAMES[i],
+			    G_BUS_NAME_WATCHER_FLAGS_NONE, on_name_appeared, on_name_vanished,
+			    GUINT_TO_POINTER(i), NULL);
+	}
+	g_clear_object(&connection);
+	g_clear_error(&error);
 }
 #endif
 
-G_GNUC_INTERNAL void watch_registrar_dbus()
+G_GNUC_INTERNAL void watch_registrar_dbus(void)
 {
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
-	if (watcher_ids[0] == 0)
-	{
-		for (int i = 0; i < 4; i++)
-			registrar_present[i] = false;
-
-		GError *error               = NULL;
-		GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
-		if (connection == NULL)
-		{
-			g_debug("Unable to connect to dbus: %s", error->message);
-			g_error_free(error);
-		}
-		else
-		{
-			GVariant *ret = g_dbus_connection_call_sync(connection,
-			                                            "org.freedesktop.DBus",
-			                                            "/org/freedesktop/DBus",
-			                                            "org.freedesktop.DBus",
-			                                            "ListNames",
-			                                            NULL,
-			                                            G_VARIANT_TYPE("(as)"),
-			                                            G_DBUS_CALL_FLAGS_NONE,
-			                                            -1,
-			                                            NULL,
-			                                            &error);
-			if (ret == NULL)
-			{
-				g_debug("Unable to query dbus for ListNames: %s", error->message);
-				g_error_free(error);
-			}
-			else
-			{
-				GVariant *names = g_variant_get_child_value(ret, 0);
-				GVariantIter iter;
-				char *name;
-				g_variant_iter_init(&iter, names);
-				while (g_variant_iter_loop(&iter, "&s", &name))
-				{
-					for (int i = 0; i < 4; i++)
-					{
-						if (g_str_equal(name, REGISTRAR_NAMES[i]))
-						{
-							registrar_present[i] = true;
-						}
-					}
-				}
-				g_variant_unref(names);
-				g_variant_unref(ret);
-			}
-			g_object_unref(connection);
-		}
-
-		for (int i = 0; i < 4; i++)
-		{
-			watcher_ids[i] = g_bus_watch_name(G_BUS_TYPE_SESSION,
-			                                  REGISTRAR_NAMES[i],
-			                                  G_BUS_NAME_WATCHER_FLAGS_NONE,
-			                                  on_name_appeared,
-			                                  on_name_vanished,
-			                                  GINT_TO_POINTER(i),
-			                                  NULL);
-		}
-	}
-	update_registrar_state();
+	/* Register only after acquiring a connection: a failed g_bus_watch_name()
+	 * lookup can otherwise leave nonzero IDs that never start watching. */
+	if (watcher_ids[0] != 0 || watcher_request_pending || watcher_retry_id != 0)
+		return;
+	watcher_request_pending = true;
+	g_bus_get(G_BUS_TYPE_SESSION, NULL, watcher_bus_ready, NULL);
 #endif
 }

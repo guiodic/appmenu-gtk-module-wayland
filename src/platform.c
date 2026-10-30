@@ -140,95 +140,88 @@ G_GNUC_INTERNAL void gtk_widget_set_x11_property_string(GtkWidget *widget, const
 
 G_GNUC_INTERNAL WindowData *gtk_x11_window_get_window_data(GtkWindow *window)
 {
-	WindowData *window_data;
-
 	if (window == NULL || !GTK_IS_WINDOW(window))
 		return NULL;
-
-	window_data = g_object_get_qdata(G_OBJECT(window), appmenu_gtk_wayland_window_data_quark());
-
-	if (window_data == NULL)
+	WindowData *data = g_object_get_qdata(G_OBJECT(window), appmenu_gtk_wayland_window_data_quark());
+	if (data == NULL)
 	{
 		static guint window_id;
-
-		GDBusConnection *session = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-		if (session == NULL)
-			return NULL;
-
-		char *object_path        = g_strdup_printf(OBJECT_PATH "/%u", window_id);
-		char *old_unique_bus_name =
-		    gtk_widget_get_x11_property_string(GTK_WIDGET(window), _GTK_UNIQUE_BUS_NAME);
-		char *old_unity_object_path =
-		    gtk_widget_get_x11_property_string(GTK_WIDGET(window), _UNITY_OBJECT_PATH);
-		char *old_menubar_object_path =
-		    gtk_widget_get_x11_property_string(GTK_WIDGET(window),
-		                                       _GTK_MENUBAR_OBJECT_PATH);
-		GDBusActionGroup *old_action_group = NULL;
-		GDBusMenuModel *old_menu_model     = NULL;
-
-		if (old_unique_bus_name != NULL)
-		{
-			if (old_unity_object_path != NULL)
-				old_action_group = g_dbus_action_group_get(session,
-				                                           old_unique_bus_name,
-				                                           old_unity_object_path);
-
-			if (old_menubar_object_path != NULL)
-				old_menu_model = g_dbus_menu_model_get(session,
-				                                       old_unique_bus_name,
-				                                       old_menubar_object_path);
-		}
-
-		window_data             = window_data_new();
-		window_data->window_id  = window_id++;
-		window_data->menu_model = g_menu_new();
-
-		if (old_menu_model != NULL)
-		{
-			window_data->old_model = G_MENU_MODEL(g_object_ref(old_menu_model));
-			g_menu_append_section(window_data->menu_model,
-			                      NULL,
-			                      G_MENU_MODEL(old_menu_model));
-		}
-
-		if (old_unique_bus_name == NULL)
-			gtk_widget_set_x11_property_string(GTK_WIDGET(window),
-			                                   _GTK_UNIQUE_BUS_NAME,
-			                                   g_dbus_connection_get_unique_name(
-			                                       session));
-
-		if (old_unity_object_path == NULL)
-			gtk_widget_set_x11_property_string(GTK_WIDGET(window),
-			                                   _UNITY_OBJECT_PATH,
-			                                   object_path);
-
-		if (old_menubar_object_path == NULL)
-			gtk_widget_set_x11_property_string(GTK_WIDGET(window),
-			                                   _GTK_MENUBAR_OBJECT_PATH,
-			                                   object_path);
-
-		g_object_set_qdata_full(G_OBJECT(window),
-		                        appmenu_gtk_wayland_window_data_quark(),
-		                        window_data,
-		                        window_data_free);
-
-		g_free(old_menubar_object_path);
-		g_free(old_unity_object_path);
-		g_free(old_unique_bus_name);
-		g_free(object_path);
-
-		if (old_menu_model != NULL)
-			g_object_unref(old_menu_model);
-
-		if (old_action_group != NULL)
-			g_object_unref(old_action_group);
-
-		if (session != NULL)
-			g_object_unref(session);
+		data = window_data_new();
+		data->window_id = window_id++;
+		/* Menu bookkeeping must exist even before the session bus is available. */
+		g_object_set_qdata_full(G_OBJECT(window), appmenu_gtk_wayland_window_data_quark(),
+		                        data, window_data_free);
 	}
-
-	return window_data;
+	return data;
 }
+
+static void free_menu_paths_window(gpointer pointer)
+{
+	GWeakRef *ref = pointer;
+	g_weak_ref_clear(ref);
+	g_free(ref);
+}
+
+static gboolean restore_native_menu_paths(gpointer pointer)
+{
+	GtkWindow *window = g_weak_ref_get(pointer);
+	WindowData *data = window != NULL ? gtk_window_peek_window_data(window) : NULL;
+	if (data != NULL)
+	{
+		data->x11_restore_menu_paths_id = 0;
+		if (data->menus == NULL && data->x11_menu_paths_hidden &&
+		    gtk_widget_get_realized(GTK_WIDGET(window)) &&
+		    !gtk_widget_in_destruction(GTK_WIDGET(window)))
+		{
+			gtk_widget_set_x11_property_string(GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH,
+			                                   data->x11_native_menubar_path);
+			gtk_widget_set_x11_property_string(GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH",
+			                                   data->x11_native_appmenu_path);
+			g_clear_pointer(&data->x11_native_menubar_path, g_free);
+			g_clear_pointer(&data->x11_native_appmenu_path, g_free);
+			data->x11_menu_paths_hidden = FALSE;
+		}
+	}
+	g_clear_object(&window);
+	return G_SOURCE_REMOVE;
+}
+
+G_GNUC_INTERNAL void gtk_x11_window_use_dbusmenu(GtkWindow *window)
+{
+	/* Advertise just DBusMenu while this module owns a bar. Preserve native
+	 * discovery paths for release, but do not expose them between synchronous
+	 * removal/insertion steps of a menu replacement: Plasma could import a
+	 * competing export. Only restore after the GTK transaction has settled. */
+	WindowData *data = gtk_window_peek_window_data(window);
+	if (data == NULL)
+		return;
+	if (data->menus != NULL)
+	{
+		if (data->x11_restore_menu_paths_id != 0)
+		{
+			g_source_remove(data->x11_restore_menu_paths_id);
+			data->x11_restore_menu_paths_id = 0;
+		}
+		if (!data->x11_menu_paths_hidden)
+		{
+			data->x11_native_menubar_path = gtk_widget_get_x11_property_string(
+			    GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH);
+			data->x11_native_appmenu_path = gtk_widget_get_x11_property_string(
+			    GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH");
+			data->x11_menu_paths_hidden = TRUE;
+		}
+		gtk_widget_set_x11_property_string(GTK_WIDGET(window), _GTK_MENUBAR_OBJECT_PATH, NULL);
+		gtk_widget_set_x11_property_string(GTK_WIDGET(window), "_GTK_APP_MENU_OBJECT_PATH", NULL);
+	}
+	else if (data->x11_menu_paths_hidden && data->x11_restore_menu_paths_id == 0)
+	{
+		GWeakRef *ref = g_new0(GWeakRef, 1);
+		g_weak_ref_init(ref, window);
+		data->x11_restore_menu_paths_id = g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,
+		    restore_native_menu_paths, ref, free_menu_paths_window);
+	}
+}
+
 #endif
 #ifdef GDK_WINDOWING_WAYLAND
 
@@ -300,7 +293,7 @@ void appmenu_wl_init()
 	if (org_kde_kwin_appmenu_manager != NULL)
 	{
 		g_debug("appmenu_wl_init: found org_kde_kwin_appmenu_manager");
-		set_gtk_shell_shows_menubar(true);
+		gtk_module_notify_menu_state();
 	}
 }
 
@@ -311,6 +304,34 @@ struct org_kde_kwin_appmenu *appmenu_set_address(GdkWindow* gdk_win, const char*
 		g_debug("appmenu_set_address: gdk_win is NULL");
 		return NULL;
 	}
+
+#ifdef GDK_WINDOWING_X11
+	/* KWin discovers X11/Xwayland DBusMenu exports through these properties. */
+	if (GDK_IS_X11_WINDOW(gdk_win))
+	{
+		Display *display = GDK_WINDOW_XDISPLAY(gdk_win);
+		Window window = GDK_WINDOW_XID(gdk_win);
+		Atom type = XInternAtom(display, "STRING", False);
+		Atom service = XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False);
+		Atom path = XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False);
+		if (unique_bus_name != NULL && menubar_object_path != NULL)
+		{
+			XChangeProperty(display, window, service, type, 8, PropModeReplace,
+			                (const unsigned char *)unique_bus_name, strlen(unique_bus_name));
+			XChangeProperty(display, window, path, type, 8, PropModeReplace,
+			                (const unsigned char *)menubar_object_path, strlen(menubar_object_path));
+		}
+		else
+		{
+			XDeleteProperty(display, window, service);
+			XDeleteProperty(display, window, path);
+		}
+		gdk_display_flush(gdk_window_get_display(gdk_win));
+		return NULL;
+	}
+#endif
+	if (!GDK_IS_WAYLAND_WINDOW(gdk_win) || unique_bus_name == NULL || menubar_object_path == NULL)
+		return NULL;
 
 	if (org_kde_kwin_appmenu_manager != NULL)
 	{
@@ -368,7 +389,6 @@ G_GNUC_INTERNAL WindowData *gtk_wayland_window_get_window_data(GtkWindow *window
 		static guint window_id;
 
 		window_data             = window_data_new();
-		window_data->menu_model = g_menu_new();
 		window_data->window_id  = window_id++;
 
 		g_object_set_qdata_full(G_OBJECT(window),

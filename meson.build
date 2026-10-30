@@ -36,6 +36,7 @@ gtk3_requested = '3' in gtk_versions
 
 dbusmenu_glib = dependency('dbusmenu-glib-0.4')
 dbusmenu_gtk3 = dependency('dbusmenu-gtk3-0.4', required: gtk3_requested)
+x11 = dependency('x11')
 wayland_client = dependency('wayland-client', required: gtk3_requested)
 
 gtk3_ver = '>=3.22.0'
