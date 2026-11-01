@@ -56,11 +56,51 @@ static int compare_strings(const void *key, const void *element)
 	return strcmp(*(const char * const *)key, *(const char * const *)element);
 }
 
+static gboolean is_in_strv(gchar **list, const char *name)
+{
+	if (list == NULL || name == NULL)
+		return FALSE;
+	for (gint i = 0; list[i] != NULL; i++)
+	{
+		if (g_strcmp0(list[i], name) == 0)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 G_GNUC_INTERNAL
 bool is_blacklisted(const char *name)
 {
 	if (name == NULL)
 		return false;
+
+	GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+	GSettingsSchema *schema = source != NULL ?
+		g_settings_schema_source_lookup(source, UNITY_GTK_MODULE_SCHEMA, TRUE) : NULL;
+
+	if (schema != NULL)
+	{
+		GSettings *settings = g_settings_new_full(schema, NULL, NULL);
+		g_settings_schema_unref(schema);
+
+		gchar **whitelist = g_settings_get_strv(settings, WHITELIST_KEY);
+		gchar **blacklist = g_settings_get_strv(settings, BLACKLIST_KEY);
+		g_object_unref(settings);
+
+		if (is_in_strv(whitelist, name))
+		{
+			g_strfreev(whitelist);
+			g_strfreev(blacklist);
+			return false;
+		}
+
+		gboolean blacklisted = is_in_strv(blacklist, name);
+		g_strfreev(whitelist);
+		g_strfreev(blacklist);
+
+		if (blacklisted)
+			return true;
+	}
 
 	const char *key = name;
 	const char *const *res = bsearch(&key,

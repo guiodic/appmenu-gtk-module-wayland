@@ -56,6 +56,38 @@ static bool is_true(const char *value)
 	       g_ascii_strcasecmp(value, "false") != 0;
 }
 
+static GSettings *cached_appmenu_settings = NULL;
+static gboolean cached_always_show_inner_menu = FALSE;
+
+static void on_appmenu_settings_changed(GSettings *settings, const gchar *key, gpointer user_data)
+{
+	(void)user_data;
+	if (g_strcmp0(key, INNER_MENU_KEY) == 0)
+	{
+		cached_always_show_inner_menu = g_settings_get_boolean(settings, INNER_MENU_KEY);
+		gtk_module_notify_menu_state();
+	}
+}
+
+static void ensure_appmenu_settings(void)
+{
+	static gsize initialized = 0;
+	if (g_once_init_enter(&initialized))
+	{
+		GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+		GSettingsSchema *schema = source != NULL ?
+			g_settings_schema_source_lookup(source, UNITY_GTK_MODULE_SCHEMA, TRUE) : NULL;
+		if (schema != NULL)
+		{
+			cached_appmenu_settings = g_settings_new_full(schema, NULL, NULL);
+			g_settings_schema_unref(schema);
+			cached_always_show_inner_menu = g_settings_get_boolean(cached_appmenu_settings, INNER_MENU_KEY);
+			g_signal_connect(cached_appmenu_settings, "changed", G_CALLBACK(on_appmenu_settings_changed), NULL);
+		}
+		g_once_init_leave(&initialized, 1);
+	}
+}
+
 G_GNUC_INTERNAL bool gtk_module_should_run()
 {
 	const char *proxy          = g_getenv("UBUNTU_MENUPROXY");
@@ -70,6 +102,11 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 	else if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
 	{
 		is_platform_supported = true;
+		ensure_appmenu_settings();
+		if (cached_appmenu_settings != NULL && !g_settings_get_boolean(cached_appmenu_settings, RUN_ON_WAYLAND))
+		{
+			is_platform_supported = false;
+		}
 	}
 	else
 		is_platform_supported = false;
@@ -106,6 +143,10 @@ G_GNUC_INTERNAL bool appmenu_registrar_present(void)
 
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
+	ensure_appmenu_settings();
+	if (cached_always_show_inner_menu)
+		return false;
+
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 	if (appmenu_registrar_present())
 		return true;

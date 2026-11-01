@@ -54,6 +54,7 @@ static GDBusConnection *test_bus_get_finish(GAsyncResult *result, GError **error
     return g_bus_get_finish(result, error);
 }
 #include "../src/hijack.h"
+#include "../src/blacklist.h"
 
 /* Vfunc originals must be saved before the first replacement, never again. */
 static void ensure_test_hooks(void)
@@ -930,6 +931,96 @@ static void test_application_menubar(void)
     g_object_unref(app);
 }
 
+static void test_gsettings_schema(void)
+{
+    /* 1. NULL handling */
+    g_assert_false(is_blacklisted(NULL));
+
+    /* 2. Static blacklist fallback when not in gsettings */
+    g_assert_true(is_blacklisted("mate-panel"));
+    g_assert_true(is_blacklisted("acroread"));
+    g_assert_false(is_blacklisted("nonexistent-test-app-xyz"));
+
+    /* 3. Look up schema */
+    GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+    g_assert_nonnull(source);
+    GSettingsSchema *schema = g_settings_schema_source_lookup(source, "org.appmenu.gtk-module", TRUE);
+    g_assert_nonnull(schema);
+    GSettings *settings = g_settings_new_full(schema, NULL, NULL);
+    g_settings_schema_unref(schema);
+    g_assert_nonnull(settings);
+
+    /* Save original user values to restore at the end */
+    gchar **orig_bl = g_settings_get_strv(settings, "blacklist");
+    gchar **orig_wl = g_settings_get_strv(settings, "whitelist");
+    gboolean orig_inner = g_settings_get_boolean(settings, "always-show-inner-menu");
+
+    /* Reset to schema defaults for isolated testing */
+    g_settings_reset(settings, "blacklist");
+    g_settings_reset(settings, "whitelist");
+    g_settings_reset(settings, "always-show-inner-menu");
+    drain();
+
+    /* 4. Default schema blacklist: ['anjuta', 'freeciv', 'freeciv-gtk3', 'glade', 'gwyddion'] */
+    g_assert_true(is_blacklisted("glade"));
+    g_assert_true(is_blacklisted("anjuta"));
+    g_assert_true(is_blacklisted("freeciv"));
+    g_assert_true(is_blacklisted("freeciv-gtk3"));
+    g_assert_true(is_blacklisted("gwyddion"));
+
+    /* 5. Custom blacklist addition */
+    const gchar *custom_bl[] = { "custom-blocked-app", NULL };
+    g_settings_set_strv(settings, "blacklist", custom_bl);
+    g_assert_true(is_blacklisted("custom-blocked-app"));
+    g_assert_false(is_blacklisted("glade"));
+
+    /* 6. Whitelist overrides static blacklist */
+    g_assert_true(is_blacklisted("mate-panel"));
+    const gchar *custom_wl[] = { "mate-panel", NULL };
+    g_settings_set_strv(settings, "whitelist", custom_wl);
+    g_assert_false(is_blacklisted("mate-panel"));
+
+    /* 7. Whitelist overrides dynamic blacklist */
+    const gchar *custom_wl2[] = { "mate-panel", "custom-blocked-app", NULL };
+    g_settings_set_strv(settings, "whitelist", custom_wl2);
+    g_assert_false(is_blacklisted("custom-blocked-app"));
+
+    /* 8. Reset whitelist */
+    const gchar *empty_wl[] = { NULL };
+    g_settings_set_strv(settings, "whitelist", empty_wl);
+    g_assert_true(is_blacklisted("mate-panel"));
+    g_assert_true(is_blacklisted("custom-blocked-app"));
+
+    /* 9. Reset blacklist to default schema */
+    g_settings_reset(settings, "blacklist");
+    g_settings_reset(settings, "whitelist");
+    g_assert_true(is_blacklisted("glade"));
+    g_assert_false(is_blacklisted("custom-blocked-app"));
+
+    /* 10. Test always-show-inner-menu */
+    name("RequestName", "org.kde.kappmenu");
+    g_assert_true(appmenu_registrar_present());
+    g_settings_set_boolean(settings, "always-show-inner-menu", FALSE);
+    g_assert_true(gtk_widget_shell_shows_menubar(bar));
+
+    g_settings_set_boolean(settings, "always-show-inner-menu", TRUE);
+    g_assert_false(gtk_widget_shell_shows_menubar(bar));
+
+    g_settings_reset(settings, "always-show-inner-menu");
+    g_assert_true(gtk_widget_shell_shows_menubar(bar));
+    name("ReleaseName", "org.kde.kappmenu");
+
+    /* Restore original user values */
+    g_settings_set_strv(settings, "blacklist", (const gchar * const *)orig_bl);
+    g_settings_set_strv(settings, "whitelist", (const gchar * const *)orig_wl);
+    g_settings_set_boolean(settings, "always-show-inner-menu", orig_inner);
+    g_strfreev(orig_bl);
+    g_strfreev(orig_wl);
+    drain();
+
+    g_object_unref(settings);
+}
+
 int main(int argc, char **argv)
 {
     gboolean real_bus_failure = argc == 2 && g_str_equal(argv[1], "--real-bus-failure");
@@ -976,6 +1067,7 @@ int main(int argc, char **argv)
     g_test_add_func("/appmenu/slow-bus-cancellation", test_slow_bus_cancellation);
     g_test_add_func("/appmenu/application-menubar", test_application_menubar);
     g_test_add_func("/appmenu/native-menu-path-release", test_native_menu_path_release);
+    g_test_add_func("/appmenu/gsettings-schema", test_gsettings_schema);
     int result = g_test_run();
     gtk_widget_destroy(window);
     g_object_unref(bus);

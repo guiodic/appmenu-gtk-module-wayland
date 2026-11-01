@@ -33,6 +33,67 @@ add_library(appmenu-gtk-module-wayland  SHARED
 target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
 target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "/usr" CACHE PATH "Install prefix" FORCE)
+endif()
+
+include(GNUInstallDirs)
+
+pkg_get_variable(GTK3_LIBDIR gtk+-3.0 libdir)
+if(GTK3_LIBDIR)
+    set(GTK3_MODULES_DIR "${GTK3_LIBDIR}/gtk-3.0/modules" CACHE PATH "Installation directory for GTK3 modules")
+else()
+    set(GTK3_MODULES_DIR "${CMAKE_INSTALL_LIBDIR}/gtk-3.0/modules" CACHE PATH "Installation directory for GTK3 modules")
+endif()
+
+install(TARGETS appmenu-gtk-module-wayland
+    LIBRARY DESTINATION "${GTK3_MODULES_DIR}"
+)
+
+install(CODE "
+    if(\"\${CMAKE_INSTALL_PREFIX}\" STREQUAL \"/usr\")
+        set(_profile_dir \"/etc/profile.d\")
+    elseif(IS_ABSOLUTE \"${CMAKE_INSTALL_SYSCONFDIR}\")
+        set(_profile_dir \"${CMAKE_INSTALL_SYSCONFDIR}/profile.d\")
+    else()
+        set(_profile_dir \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_SYSCONFDIR}/profile.d\")
+    endif()
+    file(INSTALL DESTINATION \"\${_profile_dir}\" TYPE PROGRAM FILES \"${CMAKE_CURRENT_SOURCE_DIR}/appmenu-gtk-module-wayland.sh\")
+")
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/org.appmenu.gtk-module.gschema.xml"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas"
+)
+
+find_program(GLIB_COMPILE_SCHEMAS glib-compile-schemas REQUIRED)
+
+install(CODE "
+    if(IS_ABSOLUTE \"${CMAKE_INSTALL_DATADIR}\")
+        set(_schema_dir \"${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas\")
+    else()
+        set(_schema_dir \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas\")
+    endif()
+    if(\"\$ENV{DESTDIR}\" STREQUAL \"\")
+        message(STATUS \"Compiling GSettings schemas in \${_schema_dir}...\")
+        execute_process(COMMAND \"${GLIB_COMPILE_SCHEMAS}\" \"\${_schema_dir}\"
+                        RESULT_VARIABLE _compile_res)
+        if(NOT _compile_res EQUAL 0)
+            message(FATAL_ERROR \"Failed to compile GSettings schemas in \${_schema_dir}\")
+        endif()
+    endif()
+")
+
+set(COMPILED_SCHEMAS_DIR "${CMAKE_CURRENT_BINARY_DIR}/schemas")
+file(MAKE_DIRECTORY "${COMPILED_SCHEMAS_DIR}")
+add_custom_command(
+    OUTPUT "${COMPILED_SCHEMAS_DIR}/gschemas.compiled"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${COMPILED_SCHEMAS_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/data/org.appmenu.gtk-module.gschema.xml" "${COMPILED_SCHEMAS_DIR}/"
+    COMMAND "${GLIB_COMPILE_SCHEMAS}" "${COMPILED_SCHEMAS_DIR}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/data/org.appmenu.gtk-module.gschema.xml"
+)
+add_custom_target(compile_schemas ALL DEPENDS "${COMPILED_SCHEMAS_DIR}/gschemas.compiled")
+
 option(BUILD_TESTS "Build test applications" OFF)
 
 if(BUILD_TESTS)
@@ -61,5 +122,9 @@ if(BUILD_TESTS)
     endif()
     add_test(NAME mnemonics COMMAND ${HOST_PYTHON3} "${TEST_DIR}/run-mnemonics.py"
         ${MNEMONICS_RUNNER_ARGS} ${DBUS_RUN_SESSION} ${XVFB_RUN} $<TARGET_FILE:test-mnemonics>)
-    set_tests_properties(mnemonics PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30 ENVIRONMENT "GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK3_MODULES=;GTK_MODULES=;MESON_EXE_WRAPPER=")
+    set_tests_properties(mnemonics PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30 ENVIRONMENT "GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK3_MODULES=;GTK_MODULES=;MESON_EXE_WRAPPER=;GSETTINGS_SCHEMA_DIR=${CMAKE_CURRENT_BINARY_DIR}/schemas")
+
+    if(TARGET test-mnemonics AND TARGET compile_schemas)
+        add_dependencies(test-mnemonics compile_schemas)
+    endif()
 endif()
