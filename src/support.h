@@ -28,6 +28,7 @@
 #include <gtk/gtk.h>
 #include <stdbool.h>
 
+G_GNUC_INTERNAL GSettings *appmenu_settings(void);
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget);
 G_GNUC_INTERNAL bool appmenu_registrar_present(void);
 G_GNUC_INTERNAL bool appmenu_mnemonic_receiver_present(void);

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.28)
 
 project(appmenu-gtk-module-wayland)
 
+include(GNUInstallDirs)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(DBUSMENU_GTK3 REQUIRED IMPORTED_TARGET dbusmenu-gtk3-0.4)
@@ -33,6 +35,28 @@ add_library(appmenu-gtk-module-wayland  SHARED
 target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
 target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
 
+# Use GNUInstallDirs defaults and allow distribution-specific destinations.
+set(GTK_MODULE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/gtk-3.0/modules" CACHE PATH
+    "GTK 3 module installation directory")
+set(PROFILE_INSTALL_DIR "${CMAKE_INSTALL_SYSCONFDIR}/profile.d" CACHE PATH
+    "Session environment script installation directory")
+set(SCHEMA_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas")
+find_program(GLIB_COMPILE_SCHEMAS glib-compile-schemas REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+set(SCHEMA_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/schemas")
+file(MAKE_DIRECTORY "${SCHEMA_BUILD_DIR}")
+configure_file(data/org.appmenu.gtk-module.gschema.xml
+    "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.gschema.xml" COPYONLY)
+add_custom_command(OUTPUT "${SCHEMA_BUILD_DIR}/gschemas.compiled"
+    COMMAND "${GLIB_COMPILE_SCHEMAS}" --strict "${SCHEMA_BUILD_DIR}"
+    DEPENDS "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.gschema.xml"
+    VERBATIM)
+add_custom_target(appmenu-schemas ALL DEPENDS "${SCHEMA_BUILD_DIR}/gschemas.compiled")
+install(TARGETS appmenu-gtk-module-wayland LIBRARY DESTINATION "${GTK_MODULE_INSTALL_DIR}")
+install(PROGRAMS appmenu-gtk-module-wayland.sh DESTINATION "${PROFILE_INSTALL_DIR}")
+install(FILES data/org.appmenu.gtk-module.gschema.xml DESTINATION "${SCHEMA_INSTALL_DIR}")
+configure_file(cmake/InstallSchemas.cmake.in InstallSchemas.cmake @ONLY)
+install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallSchemas.cmake")
+
 option(BUILD_TESTS "Build test applications" OFF)
 
 if(BUILD_TESTS)
@@ -50,6 +74,12 @@ if(BUILD_TESTS)
     target_include_directories(test-mnemonics PRIVATE "${GENERATED_DIR}" "${LIB_DIR}")
     target_link_libraries(test-mnemonics PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3
         PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
+    add_executable(test-settings "${TEST_DIR}/test-settings.c"
+        ${MODULE_SOURCES} "${SRC_DIR}/datastructs.c")
+    target_include_directories(test-settings PRIVATE "${GENERATED_DIR}" "${LIB_DIR}")
+    target_link_libraries(test-settings PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3
+        PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
+    add_dependencies(test-settings appmenu-schemas)
     find_program(DBUS_RUN_SESSION dbus-run-session REQUIRED NO_CMAKE_FIND_ROOT_PATH)
     find_program(XVFB_RUN xvfb-run REQUIRED NO_CMAKE_FIND_ROOT_PATH)
     set(MNEMONICS_RUNNER_ARGS --can-run-host-binaries yes)
@@ -59,6 +89,10 @@ if(BUILD_TESTS)
             list(APPEND MNEMONICS_RUNNER_ARGS "--exe-wrapper=${EMULATOR_ARG}")
         endforeach()
     endif()
+    add_test(NAME settings COMMAND ${HOST_PYTHON3} "${TEST_DIR}/run-mnemonics.py"
+        --single-run ${MNEMONICS_RUNNER_ARGS} ${DBUS_RUN_SESSION} ${XVFB_RUN} $<TARGET_FILE:test-settings>)
+    set_tests_properties(settings PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30 ENVIRONMENT
+        "GSETTINGS_SCHEMA_DIR=${SCHEMA_BUILD_DIR};GSETTINGS_BACKEND=memory;UBUNTU_MENUPROXY=1;GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK_MODULES=;GTK3_MODULES=;MESON_EXE_WRAPPER=")
     add_test(NAME mnemonics COMMAND ${HOST_PYTHON3} "${TEST_DIR}/run-mnemonics.py"
         ${MNEMONICS_RUNNER_ARGS} ${DBUS_RUN_SESSION} ${XVFB_RUN} $<TARGET_FILE:test-mnemonics>)
     set_tests_properties(mnemonics PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30 ENVIRONMENT "GDK_BACKEND=x11;NO_AT_BRIDGE=1;GTK3_MODULES=;GTK_MODULES=;MESON_EXE_WRAPPER=")

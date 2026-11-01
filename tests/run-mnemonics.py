@@ -10,6 +10,7 @@ import tempfile
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--single-run', action='store_true')
     parser.add_argument('--cross-build', action='store_true')
     parser.add_argument('--exe-wrapper', action='append', default=None)
     parser.add_argument('--can-run-host-binaries', choices=('yes', 'no'), required=True)
@@ -44,7 +45,7 @@ def main():
                    XDG_CONFIG_HOME=os.path.join(config, 'user'),
                    XDG_CONFIG_DIRS=system_config)
         result = subprocess.call(command, env=env)
-        if result != 0:
+        if result != 0 or args.single_run:
             return result
         # A fresh process avoids GIO's cached connection. Apply the target
         # wrapper here too, rather than spawning a target binary from GTest.
