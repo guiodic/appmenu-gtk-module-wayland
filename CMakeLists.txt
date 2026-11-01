@@ -36,9 +36,9 @@ target_include_directories(appmenu-gtk-module-wayland PRIVATE "${GENERATED_DIR}"
 target_link_libraries(appmenu-gtk-module-wayland PkgConfig::GTK3 PkgConfig::DBUSMENU_GTK3 PkgConfig::DBUSMENU_GLIB PkgConfig::WAYLAND_CLIENT PkgConfig::X11)
 
 # Use GNUInstallDirs defaults and allow distribution-specific destinations.
-set(GTK_MODULE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/gtk-3.0/modules" CACHE PATH
+set(GTK_MODULE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/gtk-3.0/modules" CACHE STRING
     "GTK 3 module installation directory")
-set(PROFILE_INSTALL_DIR "${CMAKE_INSTALL_SYSCONFDIR}/profile.d" CACHE PATH
+set(PROFILE_INSTALL_DIR "/etc/profile.d" CACHE STRING
     "Session environment script installation directory")
 set(SCHEMA_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas")
 find_program(GLIB_COMPILE_SCHEMAS glib-compile-schemas REQUIRED NO_CMAKE_FIND_ROOT_PATH)
