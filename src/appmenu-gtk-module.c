@@ -24,11 +24,18 @@
 
 #include <gtk/gtk.h>
 
+#include "blacklist.h"
 #include "hijack.h"
 #include "support.h"
 
 G_MODULE_EXPORT void gtk_module_init(gint *argc, gchar ***argv)
 {
+	if (is_blacklisted(g_get_prgname()))
+	{
+		g_setenv("UBUNTU_MENUPROXY", "0", TRUE);
+		return;
+	}
+
 	if (gtk_module_should_run())
 	{
 		watch_registrar_dbus();

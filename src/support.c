@@ -56,6 +56,20 @@ static bool is_true(const char *value)
 	       g_ascii_strcasecmp(value, "false") != 0;
 }
 
+static GSettings *get_appmenu_settings(void)
+{
+	GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+	GSettingsSchema *schema = source != NULL ?
+		g_settings_schema_source_lookup(source, UNITY_GTK_MODULE_SCHEMA, TRUE) : NULL;
+	if (schema != NULL)
+	{
+		GSettings *settings = g_settings_new_full(schema, NULL, NULL);
+		g_settings_schema_unref(schema);
+		return settings;
+	}
+	return NULL;
+}
+
 G_GNUC_INTERNAL bool gtk_module_should_run()
 {
 	const char *proxy          = g_getenv("UBUNTU_MENUPROXY");
@@ -70,6 +84,13 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 	else if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
 	{
 		is_platform_supported = true;
+		GSettings *app_settings = get_appmenu_settings();
+		if (app_settings != NULL)
+		{
+			if (!g_settings_get_boolean(app_settings, RUN_ON_WAYLAND))
+				is_platform_supported = false;
+			g_object_unref(app_settings);
+		}
 	}
 	else
 		is_platform_supported = false;
@@ -106,6 +127,15 @@ G_GNUC_INTERNAL bool appmenu_registrar_present(void)
 
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
+	GSettings *app_settings = get_appmenu_settings();
+	if (app_settings != NULL)
+	{
+		gboolean always_show = g_settings_get_boolean(app_settings, INNER_MENU_KEY);
+		g_object_unref(app_settings);
+		if (always_show)
+			return false;
+	}
+
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 	if (appmenu_registrar_present())
 		return true;
@@ -141,6 +171,13 @@ static void gtk_settings_handle_gtk_shell_shows_menubar(GObject *object, GParamS
 {
 	gtk_widget_queue_resize(user_data);
 }
+static void on_appmenu_settings_changed(GSettings *settings, const gchar *key, gpointer user_data)
+{
+	if (g_strcmp0(key, INNER_MENU_KEY) == 0)
+	{
+		gtk_widget_queue_resize(GTK_WIDGET(user_data));
+	}
+}
 G_GNUC_INTERNAL void gtk_widget_connect_settings(GtkWidget *widget)
 {
 	GtkSettings *settings = gtk_widget_get_settings(widget);
@@ -148,6 +185,17 @@ G_GNUC_INTERNAL void gtk_widget_connect_settings(GtkWidget *widget)
 	                 "notify::gtk-shell-shows-menubar",
 	                 G_CALLBACK(gtk_settings_handle_gtk_shell_shows_menubar),
 	                 widget);
+
+	GSettings *app_settings = get_appmenu_settings();
+	if (app_settings != NULL)
+	{
+		gulong id = g_signal_connect(app_settings,
+		                             "changed::" INNER_MENU_KEY,
+		                             G_CALLBACK(on_appmenu_settings_changed),
+		                             widget);
+		g_object_set_data(G_OBJECT(widget), "appmenu-gsettings-handler", GSIZE_TO_POINTER((gsize)id));
+		g_object_set_data_full(G_OBJECT(widget), "appmenu-gsettings-obj", app_settings, g_object_unref);
+	}
 }
 
 G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
@@ -155,6 +203,15 @@ G_GNUC_INTERNAL void gtk_widget_disconnect_settings(GtkWidget *widget)
 	GtkSettings *settings = gtk_widget_get_settings(widget);
 	if (settings != NULL)
 		g_signal_handlers_disconnect_by_data(settings, widget);
+
+	GSettings *app_settings = g_object_get_data(G_OBJECT(widget), "appmenu-gsettings-obj");
+	if (app_settings != NULL)
+	{
+		gulong id = (gulong)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(widget), "appmenu-gsettings-handler"));
+		if (id != 0)
+			g_signal_handler_disconnect(app_settings, id);
+		g_object_set_data(G_OBJECT(widget), "appmenu-gsettings-obj", NULL);
+	}
 }
 
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
