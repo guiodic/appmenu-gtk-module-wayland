@@ -21,7 +21,7 @@ GTK_MODULES=$PWD/build/libappmenu-gtk-module-wayland.so your_gtk_app
 ### install it
 
 ```console
-cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
+cmake -S . -B build
 cmake --build build
 sudo cmake --install build
 ```
@@ -29,10 +29,13 @@ sudo cmake --install build
 CMake installs the module in `${CMAKE_INSTALL_LIBDIR}/gtk-3.0/modules`, the
 session script in `/etc/profile.d` (independent of the prefix), and the GSettings
 schema in `${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas`. The default prefix is
-`/usr/local`; use the command above for system session setup. Override
+`/usr`; set `-DCMAKE_INSTALL_PREFIX=/your/prefix` to choose another prefix. Override
 `GTK_MODULE_INSTALL_DIR` or `PROFILE_INSTALL_DIR` if your distribution needs
-other locations. When reusing an existing build directory, set
-`-DPROFILE_INSTALL_DIR=/etc/profile.d` to replace a previously cached destination.
+other locations. When reusing an existing build directory configured for
+`/usr/local`, run
+`cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr -DPROFILE_INSTALL_DIR=/etc/profile.d`
+to replace cached destinations.
+Alternatively, configure a fresh build directory to use the new defaults.
 Log out and back in after installing the session script.
 
 Direct installation compiles the installed schemas. For packaging, use

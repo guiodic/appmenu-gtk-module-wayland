@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.28)
 
 project(appmenu-gtk-module-wayland)
 
+# Install system-wide by default, while preserving an explicitly chosen prefix.
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "/usr" CACHE PATH "Installation prefix" FORCE)
+endif()
+
 include(GNUInstallDirs)
 
 find_package(PkgConfig REQUIRED)
