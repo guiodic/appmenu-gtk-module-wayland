@@ -49,6 +49,33 @@ static guint watcher_retry_id;
 static guint watcher_retry_delay;
 #endif
 
+/* Keep source-tree use possible when the optional schema is not installed. */
+static void settings_changed(GSettings *settings, const char *key, gpointer unused)
+{
+	if (g_str_equal(key, INNER_MENU_KEY))
+		gtk_module_notify_menu_state();
+}
+
+G_GNUC_INTERNAL GSettings *appmenu_settings(void)
+{
+	static GSettings *settings;
+	static gboolean initialized;
+	if (!initialized)
+	{
+		initialized = TRUE;
+		GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+		GSettingsSchema *schema = source != NULL ?
+		    g_settings_schema_source_lookup(source, UNITY_GTK_MODULE_SCHEMA, TRUE) : NULL;
+		if (schema != NULL)
+		{
+			settings = g_settings_new_full(schema, NULL, NULL);
+			g_settings_schema_unref(schema);
+			g_signal_connect(settings, "changed", G_CALLBACK(settings_changed), NULL);
+		}
+	}
+	return settings;
+}
+
 static bool is_true(const char *value)
 {
 	return value != NULL && value[0] != '\0' && g_ascii_strcasecmp(value, "0") != 0 &&
@@ -69,7 +96,9 @@ G_GNUC_INTERNAL bool gtk_module_should_run()
 		is_platform_supported = true;
 	else if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display))
 	{
-		is_platform_supported = true;
+		GSettings *settings = appmenu_settings();
+		is_platform_supported = settings == NULL ||
+		    g_settings_get_boolean(settings, RUN_ON_WAYLAND);
 	}
 	else
 		is_platform_supported = false;
@@ -106,6 +135,9 @@ G_GNUC_INTERNAL bool appmenu_registrar_present(void)
 
 G_GNUC_INTERNAL bool gtk_widget_shell_shows_menubar(GtkWidget *widget)
 {
+	GSettings *module_settings = appmenu_settings();
+	if (module_settings != NULL && g_settings_get_boolean(module_settings, INNER_MENU_KEY))
+		return false;
 #if (GTK_MAJOR_VERSION < 3) || defined(GDK_WINDOWING_WAYLAND) || defined(GDK_WINDOWING_X11)
 	if (appmenu_registrar_present())
 		return true;

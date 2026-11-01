@@ -21,36 +21,47 @@ GTK_MODULES=$PWD/build/libappmenu-gtk-module-wayland.so your_gtk_app
 ### install it
 
 ```console
-sudo cp $PWD/build/libappmenu-gtk-module-wayland.so /usr/lib/gtk-3.0/modules/
-```
-Then create a file in /etc/profile.d
-
-```console
-sudo nano /etc/profile.d/appmenu-gtk-module-wayland.sh
+cmake -S . -B build
+cmake --build build
+sudo cmake --install build
 ```
 
-Copy this
+CMake installs the module in `${CMAKE_INSTALL_LIBDIR}/gtk-3.0/modules`, the
+session script in `/etc/profile.d` (independent of the prefix), and the GSettings
+schema in `${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas`. The default prefix is
+`/usr`; set `-DCMAKE_INSTALL_PREFIX=/your/prefix` to choose another prefix. Override
+`GTK_MODULE_INSTALL_DIR` or `PROFILE_INSTALL_DIR` if your distribution needs
+other locations. When reusing an existing build directory configured for
+`/usr/local`, run
+`cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr -DPROFILE_INSTALL_DIR=/etc/profile.d`
+to replace cached destinations.
+Alternatively, configure a fresh build directory to use the new defaults.
+Log out and back in after installing the session script.
+
+Direct installation compiles the installed schemas. For packaging, use
+`DESTDIR=/path/to/staging cmake --install build`; the package must run
+`glib-compile-schemas` on the destination schema directory through its usual
+package trigger. Cross builds need a host `glib-compile-schemas` executable.
+
+### GSettings
 
 ```sh
-if [ -n "$GTK_MODULES" ]; then
-    GTK_MODULES="${GTK_MODULES}:appmenu-gtk-module-wayland"
-else
-    GTK_MODULES="appmenu-gtk-module-wayland"
-fi
-
-if [ -z "$UBUNTU_MENUPROXY" ]; then
-    UBUNTU_MENUPROXY=1
-fi
-
-export GTK_MODULES
-export UBUNTU_MENUPROXY
+gsettings list-recursively org.appmenu.gtk-module
+gsettings set org.appmenu.gtk-module always-show-inner-menu true
 ```
 
-Make the file executable
+- `blacklist`: additional program names to disable, alongside the built-in list.
+- `whitelist`: program names that override both blacklists. Names match
+  `g_get_prgname()` exactly; this does not override `UBUNTU_MENUPROXY=0`.
+- `run-on-wayland`: allow native Wayland applications (default `true`);
+  X11 and Xwayland applications are unaffected.
+- `always-show-inner-menu`: retain application menus even when a registrar is
+  available. Changes apply to running applications; export remains enabled.
 
-```console
-sudo chmod +x /etc/profile.d/appmenu-gtk-module-wayland.sh
-```
+Restart applications after changing the lists or `run-on-wayland`, since these
+control module initialization. Without an installed schema the module keeps
+its built-in defaults. For an uninstalled build, set
+`GSETTINGS_SCHEMA_DIR=$PWD/build/schemas` when launching an application.
 
 ###
 
@@ -140,3 +151,8 @@ using both native Wayland applications and Xwayland applications (`GDK_BACKEND=x
 
 See [Testing and appmenu integration](docs/testing.md) for cross-compilation,
 test isolation, integration checks and supported recovery behavior.
+
+The CMake `settings` test uses the compiled build schema and an isolated memory
+backend to check blacklist/whitelist precedence, live inner-menu changes and
+X11 startup with Wayland disabled. Native Wayland startup should additionally
+be checked in a Wayland session with `run-on-wayland` both enabled and disabled.

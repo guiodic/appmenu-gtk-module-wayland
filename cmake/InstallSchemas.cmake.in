@@ -1,0 +1,13 @@
+# Package managers compile schemas on the destination system after a staged install.
+if("$ENV{DESTDIR}" STREQUAL "")
+    set(schema_dir "@SCHEMA_INSTALL_DIR@")
+    if(NOT IS_ABSOLUTE "${schema_dir}")
+        set(schema_dir "${CMAKE_INSTALL_PREFIX}/${schema_dir}")
+    endif()
+    execute_process(COMMAND "@GLIB_COMPILE_SCHEMAS@" --strict
+        "${schema_dir}"
+        RESULT_VARIABLE result)
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "Failed to compile installed GSettings schemas: ${result}")
+    endif()
+endif()

@@ -26,6 +26,7 @@
 
 #include "blacklist.h"
 #include "consts.h"
+#include "support.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,21 @@ bool is_blacklisted(const char *name)
 {
 	if (name == NULL)
 		return false;
+
+	GSettings *settings = appmenu_settings();
+	if (settings != NULL)
+	{
+		gchar **list = g_settings_get_strv(settings, WHITELIST_KEY);
+		gboolean listed = g_strv_contains((const gchar *const *)list, name);
+		g_strfreev(list);
+		if (listed)
+			return false;
+		list = g_settings_get_strv(settings, BLACKLIST_KEY);
+		listed = g_strv_contains((const gchar *const *)list, name);
+		g_strfreev(list);
+		if (listed)
+			return true;
+	}
 
 	const char *key = name;
 	const char *const *res = bsearch(&key,
