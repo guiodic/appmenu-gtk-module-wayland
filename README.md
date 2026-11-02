@@ -38,16 +38,70 @@ to replace cached destinations.
 Alternatively, configure a fresh build directory to use the new defaults.
 Log out and back in after installing the session script.
 
-Direct installation compiles the installed schemas. For packaging, use
+The session script activates the module only when `XDG_SESSION_TYPE=wayland`.
+If that variable is unset or empty, a nonempty `WAYLAND_DISPLAY` is used as a
+fallback. An explicit X11 session is never treated as Wayland. Repeated sourcing
+does not add duplicate entries to `GTK_MODULES`.
+
+When both systemd development metadata and `dbus-update-activation-environment`
+are available, CMake and Meson also install
+`appmenu-gtk-module-wayland.service` as an optional user service. It uses the same
+session detection and can be enabled with
+`systemctl --user enable appmenu-gtk-module-wayland.service` for subsequent
+graphical sessions. The user manager must receive `XDG_SESSION_TYPE` and, when
+needed, `WAYLAND_DISPLAY` from the desktop session. A manually started service
+uses the user manager's environment, not the invoking terminal's environment.
+The service preserves other GTK modules, including the X11 counterpart; stopping
+it removes only `appmenu-gtk-module-wayland`. The module's settings remain
+separate, but enabling both appmenu modules in the same application should be
+avoided.
+
+Direct installation with CMake or Meson compiles the installed schemas. For packaging, use
 `DESTDIR=/path/to/staging cmake --install build`; the package must run
 `glib-compile-schemas` on the destination schema directory through its usual
 package trigger. Cross builds need a host `glib-compile-schemas` executable.
 
+With Meson, the GTK module is also named `libappmenu-gtk-module-wayland.so`.
+The parser library, pkg-config file and public include directory use the
+`appmenu-gtk3-parser-wayland` / `appmenu-gtk-parser-wayland` names, so they do not
+replace the X11 package's files. Meson installs the GTK module in the installed
+GTK library directory's `gtk-3.0/modules` subdirectory, independently of
+`--prefix` and `--libdir`, so GTK can discover it by name. Override this with
+`-Dgtk_module_install_dir=/your/gtk-3.0/modules` if needed; GTK must be configured
+to search a custom module location. Other library files respect `--prefix` and
+`--libdir`. Override `-Dprofile_install_dir=/your/profile.d` for the session
+script if needed.
+
+For Meson cross builds, the default GTK module and systemd user-unit directories
+have the cross file's `sys_root` prefix removed when it matches a complete path
+component. These are target paths; `DESTDIR` supplies the staging root. An explicit
+`gtk_module_install_dir` is used unchanged.
+
+Set `-Ddbus_update_activation_environment=/usr/bin/dbus-update-activation-environment`
+to the absolute path on the target to enable the optional user service in a
+Meson cross build. The helper need not exist on the build machine and is never
+executed during configuration. Without this option cross builds skip the
+service, while native builds keep autodetecting the helper. Native builds may
+also use the option to specify a target path explicitly. The target package
+must supply the executable at that path. With CMake, the existing cache variable
+`-DDBUS_UPDATE_ACTIVATION_ENVIRONMENT=/usr/bin/dbus-update-activation-environment`
+can likewise supply the target path.
+
+On upgrade, package managers should remove the former Wayland package's old
+service and schema files. Do not delete files belonging to an installed X11
+package. An enabled old `appmenu-gtk-module.service` must be handled according
+to which package owns it.
+
 ### GSettings
 
+The Wayland module uses schema ID `org.appmenu.gtk-module.wayland` and
+settings path `/org/appmenu/gtk-module/wayland/`, separate from the X11
+module. Settings previously stored under `/org/appmenu/gtk-module/` are
+not migrated automatically.
+
 ```sh
-gsettings list-recursively org.appmenu.gtk-module
-gsettings set org.appmenu.gtk-module always-show-inner-menu true
+gsettings list-recursively org.appmenu.gtk-module.wayland
+gsettings set org.appmenu.gtk-module.wayland always-show-inner-menu true
 ```
 
 - `blacklist`: additional program names to disable, alongside the built-in list.
@@ -86,42 +140,19 @@ Ubuntu users now does not need to install this.
 ---
 Usage Instructions
 ---
-**XFCE**
-- Type following into your console:
-`xfconf-query -c xsettings -p /Gtk/Modules -n -t string -s "appmenu-gtk-module-wayland"`
-
-**BUDGIE***
-- Type following into your console:
-`gsettings set org.gnome.settings-daemon.plugins.xsettings enabled-gtk-modules "['appmenu-gtk-module-wayland']"`
-
-**OTHER**
-- Create file .config/gtk-3.0/settings.ini into your home directory, if it do not exists already
-Add to this file:
-    - If it is just created, `[Settings]`
-    - And then ``gtk-modules="appmenu-gtk-module-wayland"``
-
-**IF ABOVE DOES NOT WORK**
-* Add to .profile or .bashrc:
+Use the installed session script or the optional systemd user service described
+above. For manual activation in the current shell, source the script:
 
 ```sh
-if [ -n "$GTK_MODULES" ]; then
-    GTK_MODULES="${GTK_MODULES}:appmenu-gtk-module-wayland"
-else
-    GTK_MODULES="appmenu-gtk-module-wayland"
-fi
-
-if [ -z "$UBUNTU_MENUPROXY" ]; then
-    UBUNTU_MENUPROXY=1
-fi
-
-export GTK_MODULES
-export UBUNTU_MENUPROXY
+. /etc/profile.d/appmenu-gtk-module-wayland.sh
 ```
 
-**IF NONE OF THESE ARE WORKING**
-* Add above snippet to any place where environment variables should set.
-
-**YOU SHOULD RELOGIN AFTER INSTALLING THIS MODULE FIRST TIME**
+Use the configured profile directory if you overrode its installation location.
+Session variables may become available only after login profiles have run; in
+that case use the user service after the desktop imports its session environment.
+Do not set the module unconditionally in GTK settings, XSettings or `.bashrc`:
+that would bypass Wayland session detection. Remove any such older configuration
+before relying on automatic selection. Log out and back in after installation.
 
 ### Regression tests
 

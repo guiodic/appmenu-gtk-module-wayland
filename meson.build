@@ -1,4 +1,4 @@
-project('appmenu-gtk-module', 'c',
+project('appmenu-gtk-module-wayland', 'c',
 	meson_version: '>=0.61.0',
 	version: '24.02',
 	license: ['LGPL-3.0-or-later'],
@@ -24,6 +24,12 @@ datadir = get_option('datadir')
 localedir = get_option('localedir')
 schema_dir = join_paths(get_option('datadir'), 'glib-2.0', 'schemas')
 docdir = join_paths(prefix,datadir, 'doc')
+
+# pkgconf may prefix queried target directories with the cross-file sysroot.
+sys_root = meson.get_external_property('sys_root', '')
+if sys_root != ''
+    sys_root = '/' + sys_root.strip('/')
+endif
 
 ################
 # Dependencies #
@@ -63,3 +69,6 @@ subdir('src')
 subdir('data')
 subdir('docs')
 subdir('tests')
+
+# Meson skips this host-side cache update during DESTDIR installs.
+gnome.post_install(glib_compile_schemas: true)

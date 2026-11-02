@@ -1,0 +1,27 @@
+[Unit]
+Description=Wayland Appmenu GTK Module Environment Variables
+After=dbus.service
+Before=gnome-session.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecCondition=/bin/sh -ec '[ "$${XDG_SESSION_TYPE:-}" = wayland ] || { [ -z "$${XDG_SESSION_TYPE:-}" ] && [ -n "$${WAYLAND_DISPLAY:-}" ]; }'
+ExecStart=/bin/sh -ec '\
+        case ":$${GTK_MODULES:-}:" in *:appmenu-gtk-module-wayland:*) ;; *) GTK_MODULES="$${GTK_MODULES:+$${GTK_MODULES}:}appmenu-gtk-module-wayland" ;; esac;\
+        UBUNTU_MENUPROXY="$${UBUNTU_MENUPROXY:-1}";\
+        export GTK_MODULES UBUNTU_MENUPROXY;\
+        @DBUS_UPDATE_ACTIVATION_ENVIRONMENT@ --systemd GTK_MODULES UBUNTU_MENUPROXY'
+ExecStopPost=/bin/sh -ec '\
+        remaining=; old_ifs=$$IFS; IFS=:; set -f;\
+        for module in $${GTK_MODULES:-}; do\
+            [ "$$module" = appmenu-gtk-module-wayland ] && continue;\
+            [ -n "$$module" ] || continue;\
+            remaining="$${remaining:+$$remaining:}$$module";\
+        done;\
+        IFS=$$old_ifs; GTK_MODULES=$$remaining; export GTK_MODULES;\
+        @DBUS_UPDATE_ACTIVATION_ENVIRONMENT@ --systemd GTK_MODULES'
+
+[Install]
+WantedBy=graphical-session.target

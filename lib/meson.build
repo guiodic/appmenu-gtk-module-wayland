@@ -28,12 +28,12 @@ parser_kwargs = {
 pc_kwargs = {
     'description': 'GtkMenuShell to GMenuModel parser',
     'variables': ['exec_prefix=@0@'.format(join_paths(prefix,get_option('libexecdir')))],
-    'extra_cflags': ['-I${includedir}/appmenu-gtk-parser']
+    'extra_cflags': ['-I${includedir}/appmenu-gtk-parser-wayland']
 }
 
 
 gtk3_parser_lib = shared_library(
-    'appmenu-gtk3-parser',
+    'appmenu-gtk3-parser-wayland',
     dependencies: gtk3,
     kwargs: parser_kwargs
 )
@@ -51,5 +51,5 @@ gtk3_parser_dep = declare_dependency(
 
 
 
-install_headers(lib_headers, subdir: 'appmenu-gtk-parser')
+install_headers(lib_headers, subdir: 'appmenu-gtk-parser-wayland')
 

@@ -25,7 +25,7 @@
 #ifndef CONSTS_H
 #define CONSTS_H
 
-#define UNITY_GTK_MODULE_SCHEMA "org.appmenu.gtk-module"
+#define UNITY_GTK_MODULE_SCHEMA "org.appmenu.gtk-module.wayland"
 #define BLACKLIST_KEY "blacklist"
 #define WHITELIST_KEY "whitelist"
 #define INNER_MENU_KEY "always-show-inner-menu"
