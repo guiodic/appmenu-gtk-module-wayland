@@ -25,6 +25,12 @@ localedir = get_option('localedir')
 schema_dir = join_paths(get_option('datadir'), 'glib-2.0', 'schemas')
 docdir = join_paths(prefix,datadir, 'doc')
 
+# pkgconf may prefix queried target directories with the cross-file sysroot.
+sys_root = meson.get_external_property('sys_root', '')
+if sys_root != ''
+    sys_root = '/' + sys_root.strip('/')
+endif
+
 ################
 # Dependencies #
 ################

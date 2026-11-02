@@ -5,3 +5,5 @@ option('gtk_doc', type: 'boolean', value: false, description: 'Build API referen
 option('profile_install_dir', type: 'string', value: '/etc/profile.d', description: 'Session profile script installation directory')
 
 option('gtk_module_install_dir', type: 'string', value: '', description: 'GTK 3 module installation directory (defaults to the installed GTK libdir/gtk-3.0/modules)')
+
+option('dbus_update_activation_environment', type: 'string', value: '', description: 'Absolute target path of dbus-update-activation-environment (native autodetection when empty; required to enable the optional service in cross builds)')

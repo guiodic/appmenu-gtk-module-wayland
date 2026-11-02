@@ -71,6 +71,22 @@ GTK library directory's `gtk-3.0/modules` subdirectory, independently of
 to search a custom module location. Other library files respect `--prefix` and
 `--libdir`. Override `-Dprofile_install_dir=/your/profile.d` for the session
 script if needed.
+
+For Meson cross builds, the default GTK module and systemd user-unit directories
+have the cross file's `sys_root` prefix removed when it matches a complete path
+component. These are target paths; `DESTDIR` supplies the staging root. An explicit
+`gtk_module_install_dir` is used unchanged.
+
+Set `-Ddbus_update_activation_environment=/usr/bin/dbus-update-activation-environment`
+to the absolute path on the target to enable the optional user service in a
+Meson cross build. The helper need not exist on the build machine and is never
+executed during configuration. Without this option cross builds skip the
+service, while native builds keep autodetecting the helper. Native builds may
+also use the option to specify a target path explicitly. The target package
+must supply the executable at that path. With CMake, the existing cache variable
+`-DDBUS_UPDATE_ACTIVATION_ENVIRONMENT=/usr/bin/dbus-update-activation-environment`
+can likewise supply the target path.
+
 On upgrade, package managers should remove the former Wayland package's old
 service and schema files. Do not delete files belonging to an installed X11
 package. An enabled old `appmenu-gtk-module.service` must be handled according
