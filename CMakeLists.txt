@@ -65,11 +65,15 @@ install(PROGRAMS appmenu-gtk-module-wayland.sh DESTINATION "${PROFILE_INSTALL_DI
 pkg_check_modules(SYSTEMD QUIET systemd)
 if(SYSTEMD_FOUND)
     pkg_get_variable(SYSTEMD_USER_UNIT_DIR systemd systemduserunitdir)
-    find_program(DBUS_UPDATE_ACTIVATION_ENVIRONMENT dbus-update-activation-environment REQUIRED)
-    configure_file(data/appmenu-gtk-module-wayland.service.in
-        appmenu-gtk-module-wayland.service @ONLY)
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/appmenu-gtk-module-wayland.service"
-        DESTINATION "${SYSTEMD_USER_UNIT_DIR}")
+    find_program(DBUS_UPDATE_ACTIVATION_ENVIRONMENT dbus-update-activation-environment)
+    if(DBUS_UPDATE_ACTIVATION_ENVIRONMENT)
+        configure_file(data/appmenu-gtk-module-wayland.service.in
+            appmenu-gtk-module-wayland.service @ONLY)
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/appmenu-gtk-module-wayland.service"
+            DESTINATION "${SYSTEMD_USER_UNIT_DIR}")
+    else()
+        message(STATUS "Skipping optional systemd service: dbus-update-activation-environment not found")
+    endif()
 endif()
 
 install(FILES data/org.appmenu.gtk-module.wayland.gschema.xml DESTINATION "${SCHEMA_INSTALL_DIR}")

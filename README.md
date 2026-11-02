@@ -43,7 +43,8 @@ If that variable is unset or empty, a nonempty `WAYLAND_DISPLAY` is used as a
 fallback. An explicit X11 session is never treated as Wayland. Repeated sourcing
 does not add duplicate entries to `GTK_MODULES`.
 
-When systemd development metadata is available, CMake and Meson also install
+When both systemd development metadata and `dbus-update-activation-environment`
+are available, CMake and Meson also install
 `appmenu-gtk-module-wayland.service` as an optional user service. It uses the same
 session detection and can be enabled with
 `systemctl --user enable appmenu-gtk-module-wayland.service` for subsequent
@@ -63,8 +64,13 @@ package trigger. Cross builds need a host `glib-compile-schemas` executable.
 With Meson, the GTK module is also named `libappmenu-gtk-module-wayland.so`.
 The parser library, pkg-config file and public include directory use the
 `appmenu-gtk3-parser-wayland` / `appmenu-gtk-parser-wayland` names, so they do not
-replace the X11 package's files. Meson respects `--prefix` and `--libdir`; override
-`-Dprofile_install_dir=/your/profile.d` for the session script if needed.
+replace the X11 package's files. Meson installs the GTK module in the installed
+GTK library directory's `gtk-3.0/modules` subdirectory, independently of
+`--prefix` and `--libdir`, so GTK can discover it by name. Override this with
+`-Dgtk_module_install_dir=/your/gtk-3.0/modules` if needed; GTK must be configured
+to search a custom module location. Other library files respect `--prefix` and
+`--libdir`. Override `-Dprofile_install_dir=/your/profile.d` for the session
+script if needed.
 On upgrade, package managers should remove the former Wayland package's old
 service and schema files. Do not delete files belonging to an installed X11
 package. An enabled old `appmenu-gtk-module.service` must be handled according

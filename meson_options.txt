@@ -3,3 +3,5 @@ option('tests', type : 'boolean', value : false, description: 'Parser tests')
 option('gtk_doc', type: 'boolean', value: false, description: 'Build API reference')
 
 option('profile_install_dir', type: 'string', value: '/etc/profile.d', description: 'Session profile script installation directory')
+
+option('gtk_module_install_dir', type: 'string', value: '', description: 'GTK 3 module installation directory (defaults to the installed GTK libdir/gtk-3.0/modules)')
