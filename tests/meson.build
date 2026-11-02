@@ -38,6 +38,7 @@ if build_gtk3 and get_option('tests')
     dbus_run_session = find_program('dbus-run-session', native: true)
     xvfb_run = find_program('xvfb-run', native: true)
     python = find_program('python3', native: true)
+    test('session-environment', python, args: files('test-session-environment.py'))
     runner_args = [files('run-mnemonics.py'),
         '--can-run-host-binaries', meson.can_run_host_binaries() ? 'yes' : 'no']
     if meson.is_cross_build()

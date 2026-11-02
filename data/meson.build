@@ -7,9 +7,13 @@ systemd = dependency('systemd', required: false)
 if systemd.found()
     userunitdir = systemd.get_variable(pkgconfig:'systemduserunitdir')
     configure_file(
-        input: 'appmenu-gtk-module.service.in',
-        output: 'appmenu-gtk-module.service',
+        input: 'appmenu-gtk-module-wayland.service.in',
+        output: 'appmenu-gtk-module-wayland.service',
         install_dir: userunitdir,
-        configuration: {'CMAKE_INSTALL_FULL_BINDIR': join_paths(prefix,get_option('bindir'))}
+        configuration: {'DBUS_UPDATE_ACTIVATION_ENVIRONMENT': find_program('dbus-update-activation-environment').full_path()}
     )
 endif
+
+install_data('../appmenu-gtk-module-wayland.sh',
+    install_dir: get_option('profile_install_dir'),
+    install_mode: 'rwxr-xr-x')

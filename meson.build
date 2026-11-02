@@ -1,4 +1,4 @@
-project('appmenu-gtk-module', 'c',
+project('appmenu-gtk-module-wayland', 'c',
 	meson_version: '>=0.61.0',
 	version: '24.02',
 	license: ['LGPL-3.0-or-later'],
@@ -63,3 +63,6 @@ subdir('src')
 subdir('data')
 subdir('docs')
 subdir('tests')
+
+# Meson skips this host-side cache update during DESTDIR installs.
+gnome.post_install(glib_compile_schemas: true)

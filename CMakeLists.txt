@@ -49,6 +49,8 @@ set(SCHEMA_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas")
 find_program(GLIB_COMPILE_SCHEMAS glib-compile-schemas REQUIRED NO_CMAKE_FIND_ROOT_PATH)
 set(SCHEMA_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/schemas")
 file(MAKE_DIRECTORY "${SCHEMA_BUILD_DIR}")
+# Remove only the obsolete generated copy when reconfiguring an older build.
+file(REMOVE "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.gschema.xml")
 configure_file(data/org.appmenu.gtk-module.wayland.gschema.xml
     "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.wayland.gschema.xml" COPYONLY)
 add_custom_command(OUTPUT "${SCHEMA_BUILD_DIR}/gschemas.compiled"
@@ -58,6 +60,18 @@ add_custom_command(OUTPUT "${SCHEMA_BUILD_DIR}/gschemas.compiled"
 add_custom_target(appmenu-schemas ALL DEPENDS "${SCHEMA_BUILD_DIR}/gschemas.compiled")
 install(TARGETS appmenu-gtk-module-wayland LIBRARY DESTINATION "${GTK_MODULE_INSTALL_DIR}")
 install(PROGRAMS appmenu-gtk-module-wayland.sh DESTINATION "${PROFILE_INSTALL_DIR}")
+
+# Match Meson's optional systemd user-service installation.
+pkg_check_modules(SYSTEMD QUIET systemd)
+if(SYSTEMD_FOUND)
+    pkg_get_variable(SYSTEMD_USER_UNIT_DIR systemd systemduserunitdir)
+    find_program(DBUS_UPDATE_ACTIVATION_ENVIRONMENT dbus-update-activation-environment REQUIRED)
+    configure_file(data/appmenu-gtk-module-wayland.service.in
+        appmenu-gtk-module-wayland.service @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/appmenu-gtk-module-wayland.service"
+        DESTINATION "${SYSTEMD_USER_UNIT_DIR}")
+endif()
+
 install(FILES data/org.appmenu.gtk-module.wayland.gschema.xml DESTINATION "${SCHEMA_INSTALL_DIR}")
 configure_file(cmake/InstallSchemas.cmake.in InstallSchemas.cmake @ONLY)
 install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallSchemas.cmake")
@@ -73,6 +87,8 @@ if(BUILD_TESTS)
     enable_testing()
     # Keep the host runner independent of a toolchain's target Python.
     find_program(HOST_PYTHON3 NAMES python3 REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+    add_test(NAME session-environment COMMAND ${HOST_PYTHON3}
+        "${TEST_DIR}/test-session-environment.py")
     get_target_property(MODULE_SOURCES appmenu-gtk-module-wayland SOURCES)
     list(REMOVE_ITEM MODULE_SOURCES "${SRC_DIR}/datastructs.c")
     add_executable(test-mnemonics "${TEST_DIR}/test-mnemonics.c" ${MODULE_SOURCES})
