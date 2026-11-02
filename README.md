@@ -45,9 +45,14 @@ package trigger. Cross builds need a host `glib-compile-schemas` executable.
 
 ### GSettings
 
+The Wayland module uses schema ID `org.appmenu.gtk-module.wayland` and
+settings path `/org/appmenu/gtk-module/wayland/`, separate from the X11
+module. Settings previously stored under `/org/appmenu/gtk-module/` are
+not migrated automatically.
+
 ```sh
-gsettings list-recursively org.appmenu.gtk-module
-gsettings set org.appmenu.gtk-module always-show-inner-menu true
+gsettings list-recursively org.appmenu.gtk-module.wayland
+gsettings set org.appmenu.gtk-module.wayland always-show-inner-menu true
 ```
 
 - `blacklist`: additional program names to disable, alongside the built-in list.

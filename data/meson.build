@@ -1,5 +1,5 @@
 install_data([
-    'org.appmenu.gtk-module.gschema.xml'
+    'org.appmenu.gtk-module.wayland.gschema.xml'
 ], install_dir: schema_dir)
 
 systemd = dependency('systemd', required: false)

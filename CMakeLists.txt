@@ -49,16 +49,16 @@ set(SCHEMA_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas")
 find_program(GLIB_COMPILE_SCHEMAS glib-compile-schemas REQUIRED NO_CMAKE_FIND_ROOT_PATH)
 set(SCHEMA_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/schemas")
 file(MAKE_DIRECTORY "${SCHEMA_BUILD_DIR}")
-configure_file(data/org.appmenu.gtk-module.gschema.xml
-    "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.gschema.xml" COPYONLY)
+configure_file(data/org.appmenu.gtk-module.wayland.gschema.xml
+    "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.wayland.gschema.xml" COPYONLY)
 add_custom_command(OUTPUT "${SCHEMA_BUILD_DIR}/gschemas.compiled"
     COMMAND "${GLIB_COMPILE_SCHEMAS}" --strict "${SCHEMA_BUILD_DIR}"
-    DEPENDS "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.gschema.xml"
+    DEPENDS "${SCHEMA_BUILD_DIR}/org.appmenu.gtk-module.wayland.gschema.xml"
     VERBATIM)
 add_custom_target(appmenu-schemas ALL DEPENDS "${SCHEMA_BUILD_DIR}/gschemas.compiled")
 install(TARGETS appmenu-gtk-module-wayland LIBRARY DESTINATION "${GTK_MODULE_INSTALL_DIR}")
 install(PROGRAMS appmenu-gtk-module-wayland.sh DESTINATION "${PROFILE_INSTALL_DIR}")
-install(FILES data/org.appmenu.gtk-module.gschema.xml DESTINATION "${SCHEMA_INSTALL_DIR}")
+install(FILES data/org.appmenu.gtk-module.wayland.gschema.xml DESTINATION "${SCHEMA_INSTALL_DIR}")
 configure_file(cmake/InstallSchemas.cmake.in InstallSchemas.cmake @ONLY)
 install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallSchemas.cmake")
 
