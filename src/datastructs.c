@@ -133,6 +133,14 @@ G_GNUC_INTERNAL GtkWindow *menu_shell_data_get_window(MenuShellData *source)
 	return source->window;
 }
 
+G_GNUC_INTERNAL MenuShellData *gtk_menu_shell_peek_menu_shell_data(GtkMenuShell *menu_shell)
+{
+	if (menu_shell == NULL || !GTK_IS_MENU_SHELL(menu_shell))
+		return NULL;
+
+	return g_object_get_qdata(G_OBJECT(menu_shell), appmenu_gtk_wayland_menu_shell_data_quark());
+}
+
 G_GNUC_INTERNAL MenuShellData *gtk_menu_shell_get_menu_shell_data(GtkMenuShell *menu_shell)
 {
 	MenuShellData *menu_shell_data;
@@ -478,7 +486,7 @@ static void fix_dbusmenu(GtkWidget *widget, gpointer user_data)
 		}
 
 		GtkWidget *submenu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget));
-		if (submenu != NULL)
+		if (submenu != NULL && !gtk_widget_in_destruction(submenu))
 		{
 			if (g_signal_handler_find(submenu, G_SIGNAL_MATCH_FUNC, 0, 0, NULL, on_menu_show,
 			                          NULL) == 0)

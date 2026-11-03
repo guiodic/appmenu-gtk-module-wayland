@@ -42,6 +42,7 @@ typedef struct _MenuShellData MenuShellData;
 
 G_GNUC_INTERNAL MenuShellData *menu_shell_data_new(void);
 G_GNUC_INTERNAL MenuShellData *menu_shell_data_copy(MenuShellData *source);
+G_GNUC_INTERNAL MenuShellData *gtk_menu_shell_peek_menu_shell_data(GtkMenuShell *menu_shell);
 G_GNUC_INTERNAL MenuShellData *gtk_menu_shell_get_menu_shell_data(GtkMenuShell *menu_shell);
 G_GNUC_INTERNAL bool menu_shell_data_has_window(MenuShellData *source);
 G_GNUC_INTERNAL GtkWindow *menu_shell_data_get_window(MenuShellData *source);
