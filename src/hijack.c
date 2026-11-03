@@ -272,7 +272,7 @@ static void hijacked_menu_bar_unrealize(GtkWidget *widget)
 	if (widget == NULL || !GTK_IS_MENU_BAR(widget))
 		return;
 
-	menu_shell_data = gtk_menu_shell_get_menu_shell_data((GtkMenuShell *)widget);
+	menu_shell_data = gtk_menu_shell_peek_menu_shell_data((GtkMenuShell *)widget);
 
 	gtk_widget_disconnect_settings(widget);
 
