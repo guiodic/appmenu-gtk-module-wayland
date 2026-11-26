@@ -5,3 +5,5 @@
 /*.kdev4
 # vscode clangd
 /.cache
+/result
+/result-*

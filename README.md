@@ -117,6 +117,37 @@ control module initialization. Without an installed schema the module keeps
 its built-in defaults. For an uninstalled build, set
 `GSETTINGS_SCHEMA_DIR=$PWD/build/schemas` when launching an application.
 
+### Nix / NixOS
+
+This repository provides a Nix flake with a package, an overlay, a dev shell,
+regression test checks (`nix flake check`), and a NixOS module:
+
+```nix
+{
+  inputs.appmenu-gtk-module-wayland = {
+    url = "github:guiodic/appmenu-gtk-module-wayland";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { self, nixpkgs, appmenu-gtk-module-wayland, ... }: {
+    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
+      modules = [
+        appmenu-gtk-module-wayland.nixosModules.default
+        {
+          programs.appmenu-gtk-module-wayland.enable = true;
+        }
+      ];
+    };
+  };
+}
+```
+
+The NixOS module installs the GTK3 module into the system profile, places the
+Wayland session script in `/etc/xdg/plasma-workspace/env/`, and appends the
+package's GTK3 module directory to `GTK_PATH` and its compiled GSettings schema
+directory to `XDG_DATA_DIRS` so `org.appmenu.gtk-module.wayland` is discoverable
+without replacing or shadowing existing schemas.
+
 ###
 
 ---
