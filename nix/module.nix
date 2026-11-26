@@ -7,6 +7,8 @@
 
 let
   cfg = config.programs.appmenu-gtk-module-wayland;
+  schemaDir = "${cfg.package}/share/gsettings-schemas/${cfg.package.name}";
+  gtkModuleDir = "${cfg.package}/lib/gtk-3.0";
 in
 {
   options.programs.appmenu-gtk-module-wayland = {
@@ -21,20 +23,26 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ cfg.package ];
+    environment = {
+      systemPackages = [ cfg.package ];
+      pathsToLink = [ "/lib/gtk-3.0" ];
 
-    # The system profile already exposes lib/gtk-3.0 on GTK_PATH (pathsToLink),
-    # so the module in $out/lib/gtk-3.0/modules is discovered by name.
-    # Plasma sources /etc/xdg/plasma-workspace/env/*.sh at session startup;
-    # the upstream script only exports GTK_MODULES/UBUNTU_MENUPROXY on Wayland.
-    environment.etc."xdg/plasma-workspace/env/appmenu-gtk-module-wayland.sh".source =
-      "${cfg.package}/etc/profile.d/appmenu-gtk-module-wayland.sh";
-
-    # Expose org.appmenu.gtk-module.wayland to gsettings and GTK apps without
-    # shadowing other packages' schemas (GLib relocates schemas into
-    # share/gsettings-schemas/<name>/glib-2.0/schemas).
-    environment.sessionVariables.XDG_DATA_DIRS = [
-      "${cfg.package}/share/gsettings-schemas/${cfg.package.name}"
-    ];
+      # Plasma sources /etc/xdg/plasma-workspace/env/*.sh at session startup.
+      # The upstream script only exports GTK_MODULES/UBUNTU_MENUPROXY on Wayland;
+      # we also append the package's GTK3 module directory to GTK_PATH and its
+      # relocated GSettings schema directory to XDG_DATA_DIRS while preserving
+      # existing session values.
+      etc."xdg/plasma-workspace/env/appmenu-gtk-module-wayland.sh".text = ''
+        . "${cfg.package}/etc/profile.d/appmenu-gtk-module-wayland.sh"
+        case ":''${GTK_PATH:-}:" in
+          *:"${gtkModuleDir}":*) ;;
+          *) export GTK_PATH="${gtkModuleDir}''${GTK_PATH:+:$GTK_PATH}" ;;
+        esac
+        case ":''${XDG_DATA_DIRS:-}:" in
+          *:"${schemaDir}":*) ;;
+          *) export XDG_DATA_DIRS="${schemaDir}:''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
+        esac
+      '';
+    };
   };
 }

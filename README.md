@@ -142,11 +142,11 @@ regression test checks (`nix flake check`), and a NixOS module:
 }
 ```
 
-The NixOS module installs the GTK3 module into the system profile (`GTK_PATH`),
-places the Wayland session script in `/etc/xdg/plasma-workspace/env/`, and adds
-the package's compiled GSettings schema directory to `XDG_DATA_DIRS` so
-`org.appmenu.gtk-module.wayland` is discoverable without shadowing other
-schemas.
+The NixOS module installs the GTK3 module into the system profile, places the
+Wayland session script in `/etc/xdg/plasma-workspace/env/`, and appends the
+package's GTK3 module directory to `GTK_PATH` and its compiled GSettings schema
+directory to `XDG_DATA_DIRS` so `org.appmenu.gtk-module.wayland` is discoverable
+without replacing or shadowing existing schemas.
 
 ###
 

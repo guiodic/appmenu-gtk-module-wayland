@@ -48,10 +48,8 @@ stdenv.mkDerivation {
     (lib.cmakeBool "BUILD_TESTS" withTests)
   ];
 
-  # The Nix build sandbox has neither /bin/bash nor /etc/dbus-1/session.conf.
+  # The Nix build sandbox has no /etc/dbus-1/session.conf.
   postPatch = lib.optionalString withTests ''
-    substituteInPlace tests/test-session-environment.py \
-      --replace-fail "'/bin/bash'" "'${stdenv.shell}'"
     substituteInPlace tests/run-mnemonics.py \
       --replace-fail "args.dbus_run_session, '--'" "args.dbus_run_session, '--config-file=${dbus}/share/dbus-1/session.conf', '--'"
   '';
@@ -61,7 +59,7 @@ stdenv.mkDerivation {
     runHook preCheck
     export HOME="$TMPDIR"
     export XDG_CACHE_HOME="$TMPDIR/cache"
-    ctest --output-on-failure -j1
+    ctest --test-dir "$PWD" --output-on-failure -j1
     runHook postCheck
   '';
 
